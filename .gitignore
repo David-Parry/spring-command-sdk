@@ -1,0 +1,13 @@
+.gradle/
+build/
+out/
+*.iml
+*.ipr
+*.iws
+.gradle/
+**/.DS_Store
+/.env
+aws_ed25519.pub
+/notes.md
+/verify-jira-user.sh
+/docker/.env
