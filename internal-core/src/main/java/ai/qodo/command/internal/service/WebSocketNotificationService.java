@@ -415,7 +415,7 @@ public class WebSocketNotificationService implements MessageService {
 
 
     protected void handleWebSocketError(CommandSession session, String error) {
-        logger.error("WebSocket error for notification event {}: {}", session, error);
+        logger.error("WebSocket error for notification event {}: {}", session.sessionId(), error);
 
         // Check if we're in a reconnection scenario
         if (isReconnecting) {

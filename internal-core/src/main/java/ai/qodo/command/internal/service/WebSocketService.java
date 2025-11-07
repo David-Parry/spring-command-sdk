@@ -237,7 +237,7 @@ public class WebSocketService {
      */
     public CompletableFuture<WebSocket> connect(CommandSession session, String token,
                                                 Consumer<TaskResponse> messageHandler, Consumer<String> errorHandler) {
-        return connect(session, token, messageHandler, errorHandler, null);
+        return connect(session, token, messageHandler, errorHandler, null, false);
     }
 
     /**
@@ -249,6 +249,17 @@ public class WebSocketService {
     public CompletableFuture<WebSocket> connect(CommandSession session, String token,
                                                 Consumer<TaskResponse> messageHandler, Consumer<String> errorHandler,
                                                 Runnable reconnectionCallback) {
+        return connect(session, token, messageHandler, errorHandler, reconnectionCallback, false);
+    }
+
+    /**
+     * Internal connect method with explicit reconnection flag.
+     * 
+     * @param isReconnect true if this is a reconnection attempt, false for initial connection
+     */
+    private CompletableFuture<WebSocket> connect(CommandSession session, String token,
+                                                Consumer<TaskResponse> messageHandler, Consumer<String> errorHandler,
+                                                Runnable reconnectionCallback, boolean isReconnect) {
 
         // Update lifecycle state
         lifecycleState = LifecycleState.CONNECTING;
@@ -271,16 +282,20 @@ public class WebSocketService {
         this.lastToken = effectiveToken;
         this.lastMessageHandler = messageHandler;
         this.lastErrorHandler = errorHandler;
-        this.reconnectAttempts.set(0);
+        
+        // Only reset reconnect attempts if this is NOT a reconnection
+        if (!isReconnect) {
+            this.reconnectAttempts.set(0);
+        }
         this.intentionalClose.set(false);
 
         // Generate WebSocket URL using the session (includes checkpoint_id if this is a reconnect)
         String wsBase = qodoProperties.getBaseUrl().replaceFirst("^http", "ws").replaceAll("/+$", "");
-        boolean isReconnect = reconnectAttempts.get() > 0;
         String wsUrl = session.generateWebSocketUrl(wsBase, isReconnect);
 
-        logger.info("[{}] Connecting to WebSocket for session {} (reconnect={}): {}", 
-                   instanceId, session.sessionId(), isReconnect, wsUrl);
+        logger.info("[{}] Connecting to WebSocket for session {} (reconnect={}, checkpoint_id={}): {}", 
+                   instanceId, session.sessionId(), isReconnect, 
+                   isReconnect ? session.checkPointId() : "N/A", wsUrl);
 
         HttpClient client = HttpClient.newBuilder().connectTimeout(connectionTimeout).build();
         WebSocketListener listener = new WebSocketListener(session.sessionId(), messageHandler, errorHandler);
@@ -643,7 +658,8 @@ public class WebSocketService {
                 logger.info("[{}] Attempting reconnection {}/{} for session {}", instanceId, attempts,
                             maxAttemptsInner, lastSession.sessionId());
 
-                connect(lastSession, lastToken, lastMessageHandler, lastErrorHandler).thenAccept(ws -> {
+                // Pass true for isReconnect to include checkpoint_id in URL
+                connect(lastSession, lastToken, lastMessageHandler, lastErrorHandler, null, true).thenAccept(ws -> {
                     if (ws != null && !ws.isInputClosed() && !ws.isOutputClosed()) {
                         logger.info("[{}] Successfully reconnected on attempt {}/{}", instanceId, attempts,
                                     maxAttemptsInner);

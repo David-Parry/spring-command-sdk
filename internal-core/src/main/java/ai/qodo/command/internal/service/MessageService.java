@@ -12,6 +12,7 @@ import ai.qodo.command.internal.pojo.CommandSession;
 
 public interface MessageService {
     String SERVICE_SUFFIX = "-service";
+    String INCOMPLETE_NODE_SERVICE = "incomplete"+SERVICE_SUFFIX;
 
     void process();
 

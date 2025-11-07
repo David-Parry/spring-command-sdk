@@ -23,6 +23,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.modelcontextprotocol.client.McpSyncClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Scope;
@@ -35,6 +36,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
 import java.util.UUID;
+
+import static ai.qodo.command.internal.service.MessageService.INCOMPLETE_NODE_SERVICE;
 
 /**
  * Service responsible for routing messages to appropriate services based on the message type.
@@ -61,6 +64,8 @@ public class MessageEventRouter implements MessageRouter {
     @Override
     public void processMessage(String message) {
         CommandSession commandSession = null;
+        // should always be able to have a service name but if one can not be created then go to the incomplete
+        String serviceName = INCOMPLETE_NODE_SERVICE;
         try {
             logger.debug("Processing message: {}", message);
 
@@ -83,8 +88,7 @@ public class MessageEventRouter implements MessageRouter {
 
             String eventKey = extractEventKey(messageNode);
             WebSocketIds webSocketIds = WebSocketUtil.generateNewWebSocketIds();
-            String serviceName;
-            
+
             // Extract project structure if present in the message
             String projectStructure = null;
             JsonNode projectStructureNode = messageNode.get(StringConstants.PROJECT_STRUCTURE.getValue());
@@ -92,7 +96,7 @@ public class MessageEventRouter implements MessageRouter {
                 projectStructure = projectStructureNode.asText();
                 logger.debug("Extracted project structure from message for session: {}", webSocketIds.sessionId());
             }
-            
+
             CommandSessionBuilder commandSessionBuilder = new CommandSessionBuilder()
                     .messageType(messageType)
                     .sessionId(webSocketIds.sessionId())
@@ -118,12 +122,16 @@ public class MessageEventRouter implements MessageRouter {
             service.init(commandSession);
             service.process();
             logger.info("Successfully processed routed messageType '{}' to service '{}'", messageType, service);
-            closeSession(commandSession);
-
+        } catch (BeansException be) {
+            logger.error("Service not present if '{}' == '{}' this means the LLM did not return with complete " +
+                                 "messages or it gave up. You can implement a service to handle this case for the " +
+                                 "service {} and even use the LLM to continue or recover", serviceName,
+                         INCOMPLETE_NODE_SERVICE, INCOMPLETE_NODE_SERVICE);
         } catch (Exception e) {
             logger.error("Failed to process message: {}", message, e);
-            closeSession(commandSession);
             throw new CommandException("Failed to process message: " + message, e);
+        } finally {
+            closeSession(commandSession);
         }
     }
 
@@ -133,7 +141,6 @@ public class MessageEventRouter implements MessageRouter {
             if (session.mcpClients() != null && !session.mcpClients().isEmpty()) {
                 session.mcpClients().values().forEach(McpSyncClient::close);
             }
-            
             // Clean up session directory
             cleanupSessionDirectory(session.sessionId());
         }
