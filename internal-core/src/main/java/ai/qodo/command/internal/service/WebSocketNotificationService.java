@@ -91,24 +91,46 @@ public class WebSocketNotificationService implements MessageService {
         try {
             logger.info("Executing WebSocket send for event: {}", commandSession.eventKey());
 
-            // Execute the WebSocket send
-            CompletableFuture<Void> future = executeWebSocketSend(commandSession).exceptionally(throwable -> {
-                logger.error("Error sending WebSocket notification for event: {}", commandSession.eventKey(),
-                             throwable);
-                completionLatch.countDown(); // Release latch on error
-                return null;
-            });
+            // Execute the WebSocket send and wait for connection/send to complete or fail
+            CompletableFuture<Void> future = executeWebSocketSend(commandSession);
+            
+            // This will throw ExecutionException if connection fails (including reconnection failures)
             future.get(qodoProperties.getWebsocket().getConnectionTimeoutSeconds(), TimeUnit.SECONDS);
+            
             // Block until WebSocket work is complete
             logger.debug("Waiting for WebSocket work to complete for event with key: {} and session id {}",
                          commandSession.eventKey(), commandSession.sessionId());
             completionLatch.await();
             logger.info("WebSocket work completed for event: {}", commandSession.eventKey());
 
-        } catch (Exception e) {
-            logger.error("Error sending WebSocket notification for event: {}", commandSession, e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            
+            // Check if it's a CommandException from reconnection failure
+            if (cause instanceof CommandException) {
+                logger.error("WebSocket connection failed with CommandException for event: {} - {}", 
+                            commandSession.eventKey(), cause.getMessage());
+                completionLatch.countDown();
+                // Re-throw to trigger JMS rollback
+                throw (CommandException) cause;
+            }
+            
+            // Wrap other exceptions
+            logger.error("WebSocket operation failed for event: {}", commandSession.eventKey(), cause);
             completionLatch.countDown();
-            throw new CompletionException("Error sending WebSocket notification ", e);
+            throw new CommandException("WebSocket operation failed: " + cause.getMessage(), cause);
+            
+        } catch (TimeoutException e) {
+            logger.error("WebSocket operation timed out after {}s for event: {}", 
+                        qodoProperties.getWebsocket().getConnectionTimeoutSeconds(), commandSession.eventKey());
+            completionLatch.countDown();
+            throw new CommandException("WebSocket operation timed out", e);
+            
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.error("WebSocket operation was interrupted for event: {}", commandSession.eventKey());
+            completionLatch.countDown();
+            throw new CommandException("WebSocket operation interrupted", e);
         }
     }
 

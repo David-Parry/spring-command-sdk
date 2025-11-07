@@ -92,6 +92,8 @@ public class WebSocketService {
     private volatile String lastToken;
     private volatile Consumer<TaskResponse> lastMessageHandler;
     private volatile Consumer<String> lastErrorHandler;
+    // Track the current connection future for exception propagation
+    private volatile CompletableFuture<WebSocket> connectionFuture;
     // Meter references for cleanup
     private Meter.Id connectionStatusMeterId;
     private Meter.Id lastPongAgeMeterId;
@@ -261,6 +263,9 @@ public class WebSocketService {
                                                 Consumer<TaskResponse> messageHandler, Consumer<String> errorHandler,
                                                 Runnable reconnectionCallback, boolean isReconnect) {
 
+        // Create and store the connection future for exception propagation
+        this.connectionFuture = new CompletableFuture<>();
+
         // Update lifecycle state
         lifecycleState = LifecycleState.CONNECTING;
         logger.info("[{}] Lifecycle state: {} -> CONNECTING", instanceId, lifecycleState);
@@ -300,7 +305,8 @@ public class WebSocketService {
         HttpClient client = HttpClient.newBuilder().connectTimeout(connectionTimeout).build();
         WebSocketListener listener = new WebSocketListener(session.sessionId(), messageHandler, errorHandler);
 
-        return client
+        // Build the WebSocket connection asynchronously
+        client
                 .newWebSocketBuilder()
                 .header("Authorization", "Bearer " + effectiveToken)
                 .buildAsync(URI.create(wsUrl), listener)
@@ -337,10 +343,25 @@ public class WebSocketService {
                         errorHandler.accept("Connection failed: " + throwable.getMessage());
                     }
 
-                    // Schedule reconnect or throw exception
+                    // Schedule reconnect or complete future exceptionally
                     scheduleReconnect("initial connection failure");
                     return null;
+                })
+                .whenComplete((ws, error) -> {
+                    // Complete the stored connection future with the result
+                    if (error != null) {
+                        if (!connectionFuture.isDone()) {
+                            connectionFuture.completeExceptionally(error);
+                        }
+                    } else {
+                        if (!connectionFuture.isDone()) {
+                            connectionFuture.complete(ws);
+                        }
+                    }
                 });
+        
+        // Return the stored connection future for exception propagation
+        return connectionFuture;
     }
 
     /**
@@ -630,14 +651,23 @@ public class WebSocketService {
         int attempts = reconnectAttempts.incrementAndGet();
         int maxAttempts = qodoProperties.getWebsocket().getMaxReconnectAttempts();
 
-        // If max attempts reached, throw exception to trigger JMS rollback
+        // If max attempts reached, complete the connection future exceptionally to propagate to JMS thread
         if (attempts > maxAttempts) {
             logger.error("[{}] Max reconnect attempts ({}) exhausted for cause: {}", instanceId, maxAttempts, cause);
             reconnecting.set(false);
 
-            // Throw CommandException to trigger JMS transaction rollback
-            throw new CommandException(String.format("WebSocket connection failed after %d reconnect attempts - %s",
-                                                     maxAttempts, cause));
+            // Complete the connection future exceptionally to propagate exception to JMS thread
+            if (connectionFuture != null && !connectionFuture.isDone()) {
+                CommandException exception = new CommandException(
+                    String.format("WebSocket connection failed after %d reconnect attempts - %s",
+                                 maxAttempts, cause)
+                );
+                connectionFuture.completeExceptionally(exception);
+                logger.info("[{}] Completed connection future exceptionally to trigger JMS rollback", instanceId);
+            } else {
+                logger.warn("[{}] Connection future is null or already done, cannot propagate exception", instanceId);
+            }
+            return;
         }
 
         Duration delay = calculateBackoffDelay(attempts);
