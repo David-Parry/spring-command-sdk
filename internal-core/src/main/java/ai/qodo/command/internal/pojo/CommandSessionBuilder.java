@@ -15,6 +15,7 @@ import io.modelcontextprotocol.client.McpSyncClient;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Builder class for creating CommandSession objects.
@@ -325,6 +326,50 @@ public class CommandSessionBuilder {
             .attemptCount(session.attemptCount())  // Keep original attempt count
             .payload(session.payload())
             .checkPointId(newCheckpointId)  // Update with new checkpoint
+            .projectStringStructure(session.projectStringStructure());
+    }
+
+    /**
+     * Static factory method to create a builder from an existing CommandSession with a new request ID.
+     * Used for reconnection scenarios where a fresh request ID is required for each new connection attempt.
+     * Copies all fields from the provided session, generates a new request ID, and increments attemptCount.
+     * 
+     * <p>This ensures that each reconnection attempt has a unique request ID while maintaining
+     * session continuity (same sessionId) and checkpoint-based state resumption (same checkPointId).
+     * 
+     * <p>Example usage:
+     * <pre>
+     * CommandSession reconnectSession = CommandSessionBuilder.fromSessionWithNewRequestId(originalSession).build();
+     * // reconnectSession will have:
+     * // - Same sessionId (for session continuity)
+     * // - New requestId (unique for this connection attempt)
+     * // - Same checkPointId (for state resumption)
+     * // - attemptCount = originalSession.attemptCount() + 1
+     * </pre>
+     * 
+     * @param session the existing CommandSession to copy from
+     * @return a new CommandSessionBuilder with all fields copied, new request ID, and attemptCount incremented
+     * @throws IllegalArgumentException if session is null
+     */
+    public static CommandSessionBuilder fromSessionWithNewRequestId(CommandSession session) {
+        if (session == null) {
+            throw new IllegalArgumentException("session cannot be null");
+        }
+        
+        // Generate a new request ID for this reconnection attempt
+        String newRequestId = UUID.randomUUID().toString();
+        
+        return new CommandSessionBuilder()
+            .messageType(session.messageType())
+            .sessionId(session.sessionId())  // Keep same session ID for continuity
+            .agentCommand(session.agentCommand())
+            .eventKey(session.eventKey())
+            .requestId(newRequestId)  // New request ID for this connection
+            .mcpClients(session.mcpClients())
+            .createdAt(session.createdAt())
+            .attemptCount(session.attemptCount() + 1)  // Increment attempt count
+            .payload(session.payload())
+            .checkPointId(session.checkPointId())  // Preserve checkpoint for state resumption
             .projectStringStructure(session.projectStringStructure());
     }
 }

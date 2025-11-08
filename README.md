@@ -343,7 +343,7 @@ The Command SDK comes with three production-ready AI agents:
 # Requires: ATLASSIAN_EMAIL, ATLASSIAN_SITE_URL, ATLASSIAN_API_TOKEN
 ```
 
-### 3. **Bug Coding Agent** (`bug_coding_agent`)
+### 3. **Coding Agent** (`coding_agent`)
 
 **Purpose**: Automatically fixes bugs based on Jira tickets.
 
@@ -783,10 +783,10 @@ The mapping works as follows:
 **Real Examples from this Project:**
 
 | agent.yml Command Name | Handler Class | @Service Annotation | Bean Name |
-|------------------------|---------------|---------------------|-----------|
+|--------------------|---------------|---------------------|-----------|
 | `snyk_agent` | `SnykAgentHandler` | `@Service("snyk_agent" + HANDLER_SUFFIX)` | `snyk_agent-handler` |
 | `jira_agent` | `JiraAgentHandler` | `@Service("jira_agent" + HANDLER_SUFFIX)` | `jira_agent-handler` |
-| `bug_coding_agent` | `BugCodingAgentHandler` | `@Service("bug_coding_agent" + HANDLER_SUFFIX)` | `bug_coding_agent-handler` |
+| `coding_agent` | `CodingAgentHandler` | `@Service("coding_agent" + HANDLER_SUFFIX)` | `coding_agent-handler` |
 
 **How the Framework Finds Your Handler:**
 

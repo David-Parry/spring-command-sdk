@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.io.IOException;
 import java.net.URI;
@@ -212,5 +213,47 @@ public class GlobalExceptionHandler {
             logger.debug("Failed to extract request URL: {}", e.getMessage());
             return "unknown";
         }
+    }
+
+    /**
+     * Handles NoResourceFoundException for static resources.
+     * These are typically scanning/phishing attempts looking for vulnerable endpoints.
+     * Logs at DEBUG level to avoid log pollution from automated scanners.
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ProblemDetail handleNoResourceFoundException(NoResourceFoundException ex, WebRequest request) {
+        String requestUrl = getRequestUrl(request);
+        String resourcePath = ex.getResourcePath();
+
+        // Extract IP address for security logging
+        String clientIp = "unknown";
+        if (request instanceof ServletWebRequest servletWebRequest) {
+            HttpServletRequest httpRequest = servletWebRequest.getRequest();
+            clientIp = httpRequest.getRemoteAddr();
+        }
+
+        // Log at debug level with security context
+        logger.debug("Potential security scan - static resource not found [ip={}, path={}, url={}]",
+                     clientIp, resourcePath, requestUrl);
+
+        // Only log stack trace if trace level is enabled
+        if (logger.isTraceEnabled()) {
+            logger.trace("NoResourceFoundException details:", ex);
+        }
+
+        // Return minimal information to avoid revealing internal structure
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.NOT_FOUND,
+                "Resource not found"
+        );
+
+        problemDetail.setTitle("Not Found");
+        problemDetail.setType(URI.create("urn:qodo:command:errors:resource-not-found"));
+        problemDetail.setProperty("timestamp", Instant.now().toString());
+
+        // Don't include sensitive information like paths or correlation IDs
+        // to avoid helping attackers map the application
+
+        return problemDetail;
     }
 }

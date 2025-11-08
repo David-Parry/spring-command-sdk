@@ -1,6 +1,73 @@
 version: "1.0"
 system_prompt: "You are a Distinguished Software Engineer performing software development tasks."
 commands:
+  incomplete:
+    description: "Reads the conversation with the Agent LLM and gives the reason why it could not give an output schema to move forward."
+
+    instructions: |
+      ### Phase 1: Issue Retrieval & Context Building
+      1. Use jira_get_issue tool with issueKey: {/issueKey} to retrieve the full issue details
+      
+      ### Phase 2: Comment History Analysis
+      1. Review ALL comments in chronological order
+      2. Identify agent-generated comments by the [AGENT-REQUEST] prefix
+      
+      ### Phase 3: Output of prior Agent
+      Evaluate the following conversation from the Agent:
+      {/llmConversation}
+      
+      ### Phase 4: Deciding the REASON why the output schema was not given by the prior Agent
+      1. The conversation you analyzed by the prior Agent and using whatever tools you need to determine the reason why the output schema was not given by the prior Agent
+          
+      ### Phase 5: Output
+      1. **Always if issueKey={/issueKey} is present then always update the issue with a comment with your REASON**
+      1. **Always include issueKey={/issueKey} in your output response reason field**
+      3. **All agent comments must start with [AGENT-REASONING]**
+      
+      ## OUTPUT SCHEMA
+      Your response must conform to output_incomplete schema with these required fields:
+      - success: boolean
+      - reason: string
+    
+      *** Your Output response must conform to the configured output schema output_jira_agent ***
+
+    model: "claude-4.1-opus"
+
+    mcpServers: |
+      {
+        "mcpServers": {
+           "internal-server": {
+              "command": "java",
+              "args": ["-jar", "/app/mcp-internal-1.0.3.jar"],
+              "env": {
+                "JIRA_EMAIL":"{ATLASSIAN_JIRA_USERNAME}",
+                "JIRA_API_TOKEN":"{ATLASSIAN_JIRA_API_TOKEN}",
+                "JIRA_SITE_URL":"{ATLASSIAN_JIRA_URL}"
+              }
+            }
+          }
+      }
+
+    tools: [ "internal-server.jira_get_issue", "internal-server.git_clone_repository", "internal-server.terminal_execute_command","internal-server.get_project_tree", "internal-server.jira_update_issue", "internal-server.jira_transition_issue","internal-server.jira_add_comment", "internal-server.jira_get_statuses" ]
+    execution_strategy: "act"
+
+    output_schema: |
+      {
+         "properties": {
+             "success": {
+                 "description": "Boolean indicating if the agent was able to complete the analysis and provide the design for implementation",
+                 "type": "boolean"
+             },
+              "reason": {
+                "description": "Your reason why the other agent was not able to create an output_schema",
+                 "type": "string"
+              }
+         },
+         "required": ["success"]
+      }
+
+    exit_expression: "success"
+
   jira_agent:
     description: "Read the Jira Bug ticket, Analyze it and ensure it is enough to move forward with."
 
@@ -226,12 +293,12 @@ commands:
                  "type": "string"
               }
          },
-         "required": ["summary", "questions", "success"]
+         "required": ["issueKey","summary", "questions", "success"]
       }
 
     exit_expression: "success"
 
-  bug_coding_agent:
+  coding_agent:
     description: "Retrieve the completed bug from Jira that is ready for implementation and checkout the code from the repository. Analyze the code find the root cause of the bug and provide a detailed explanation of the issue. Ensure that the code is well-documented and follows best practices. Provide a detailed plan to address the issue, which could include code fixes, configuration changes, infrastructure updates, or other resolutions."
 
     instructions: |

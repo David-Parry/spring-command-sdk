@@ -103,8 +103,8 @@ echo ""
 echo "========================================="
 echo "Step 10: Waiting for services to be healthy"
 echo "========================================="
-echo "Waiting 30 seconds for services to initialize..."
-sleep 30
+echo "Waiting 10 seconds for services to initialize..."
+sleep 10
 
 echo ""
 echo "Service Status:"

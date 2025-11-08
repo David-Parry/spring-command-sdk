@@ -198,7 +198,7 @@ commands:
 
     exit_expression: "success"
 
-  bug_coding_agent:
+  coding_agent:
     description: "Retrieve the completed bug from Jira that is ready for implementation and checkout the code from the repository. Analyze the code find the root cause of the bug and provide a detailed explanation of the issue. Ensure that the code is well-documented and follows best practices. Provide a detailed plan to address the issue, which could include code fixes, configuration changes, infrastructure updates, or other resolutions."
 
     instructions: |

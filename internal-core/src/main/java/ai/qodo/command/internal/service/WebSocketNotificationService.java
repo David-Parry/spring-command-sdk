@@ -24,6 +24,7 @@ import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.spec.McpSchema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.BeanNameAware;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Scope;
@@ -43,7 +44,7 @@ import java.util.concurrent.*;
  */
 @Service("websocketNotificationService")
 @Scope("prototype")
-public class WebSocketNotificationService implements MessageService {
+public class WebSocketNotificationService implements MessageService, BeanNameAware {
     public static final String TYPE_STRUCTURED_OUTPUT = "structured_output";
     private static final Logger logger = LoggerFactory.getLogger(WebSocketNotificationService.class);
     private final WebSocketService webSocketService;
@@ -61,6 +62,7 @@ public class WebSocketNotificationService implements MessageService {
     private volatile boolean readySignalPending = false;
     private volatile Instant readySignalStartTime;
     private volatile boolean isReconnecting = false;
+    private String serviceKey;
 
     @Autowired
     public WebSocketNotificationService(WebSocketService webSocketService, MCPClientInitializer mcpClientInitializer,
@@ -74,6 +76,11 @@ public class WebSocketNotificationService implements MessageService {
         this.applicationContext = applicationContext;
         this.mcpMetrics = mcpMetrics;
         this.webSocketMetrics = webSocketMetrics;
+    }
+
+    @Override
+    public void setBeanName(String name) {
+        this.serviceKey = name;
     }
 
     /**
@@ -93,10 +100,10 @@ public class WebSocketNotificationService implements MessageService {
 
             // Execute the WebSocket send and wait for connection/send to complete or fail
             CompletableFuture<Void> future = executeWebSocketSend(commandSession);
-            
+
             // This will throw ExecutionException if connection fails (including reconnection failures)
             future.get(qodoProperties.getWebsocket().getConnectionTimeoutSeconds(), TimeUnit.SECONDS);
-            
+
             // Block until WebSocket work is complete
             logger.debug("Waiting for WebSocket work to complete for event with key: {} and session id {}",
                          commandSession.eventKey(), commandSession.sessionId());
@@ -105,27 +112,28 @@ public class WebSocketNotificationService implements MessageService {
 
         } catch (ExecutionException e) {
             Throwable cause = e.getCause();
-            
+
             // Check if it's a CommandException from reconnection failure
             if (cause instanceof CommandException) {
-                logger.error("WebSocket connection failed with CommandException for event: {} - {}", 
-                            commandSession.eventKey(), cause.getMessage());
+                logger.error("WebSocket connection failed with CommandException for event: {} - {}",
+                             commandSession.eventKey(), cause.getMessage());
                 completionLatch.countDown();
                 // Re-throw to trigger JMS rollback
                 throw (CommandException) cause;
             }
-            
+
             // Wrap other exceptions
             logger.error("WebSocket operation failed for event: {}", commandSession.eventKey(), cause);
             completionLatch.countDown();
             throw new CommandException("WebSocket operation failed: " + cause.getMessage(), cause);
-            
+
         } catch (TimeoutException e) {
-            logger.error("WebSocket operation timed out after {}s for event: {}", 
-                        qodoProperties.getWebsocket().getConnectionTimeoutSeconds(), commandSession.eventKey());
+            logger.error("WebSocket operation timed out after {}s for event: {}", qodoProperties
+                    .getWebsocket()
+                    .getConnectionTimeoutSeconds(), commandSession.eventKey());
             completionLatch.countDown();
             throw new CommandException("WebSocket operation timed out", e);
-            
+
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             logger.error("WebSocket operation was interrupted for event: {}", commandSession.eventKey());
@@ -140,6 +148,11 @@ public class WebSocketNotificationService implements MessageService {
         // Initialize ready signal early to prevent race conditions
         initializeReadySignal();
         logger.debug("Initialized WebSocketNotificationService for session: {}", commandSession.sessionId());
+    }
+
+    @Override
+    public String serviceKey() {
+        return serviceKey;
     }
 
     /**
@@ -239,22 +252,22 @@ public class WebSocketNotificationService implements MessageService {
      */
     private void handleReconnectionStart() {
         logger.info("Reconnection starting for session: {} - setting reconnection flag and resetting ready signal",
-                   commandSession != null ? commandSession.sessionId() : "unknown");
+                    commandSession != null ? commandSession.sessionId() : "unknown");
         isReconnecting = true;
-        
+
         // Reset the ready signal for the reconnection attempt
         synchronized (readySignalLock) {
             if (readySignal != null && !readySignal.isDone()) {
                 logger.debug("Completing pending ready signal before reconnection for session: {}",
-                            commandSession != null ? commandSession.sessionId() : "unknown");
+                             commandSession != null ? commandSession.sessionId() : "unknown");
                 // Complete it exceptionally to unblock any waiting threads
                 readySignal.completeExceptionally(new CommandException("Reconnection in progress"));
             }
             // Create a new ready signal for the reconnected session
             readySignal = new CompletableFuture<>();
             readySignalPending = true;
-            logger.debug("Created new ready signal for reconnection attempt for session: {}",
-                        commandSession != null ? commandSession.sessionId() : "unknown");
+            logger.debug("Created new ready signal for reconnection attempt for session: {}", commandSession != null
+                    ? commandSession.sessionId() : "unknown");
         }
     }
 
@@ -262,8 +275,8 @@ public class WebSocketNotificationService implements MessageService {
      * Handles reconnection completion by clearing the reconnection flag.
      */
     private void handleReconnectionComplete() {
-        logger.info("Reconnection completed for session: {} - clearing reconnection flag",
-                   commandSession != null ? commandSession.sessionId() : "unknown");
+        logger.info("Reconnection completed for session: {} - clearing reconnection flag", commandSession != null ?
+                commandSession.sessionId() : "unknown");
         isReconnecting = false;
     }
 
@@ -272,6 +285,17 @@ public class WebSocketNotificationService implements MessageService {
      */
     private CompletableFuture<Void> executeWebSocketSend(CommandSession session) {
         logger.debug("Building agent request for event: {}", session.eventKey());
+
+        // Validate that agentCommand is present
+        if (session.agentCommand() == null) {
+            String error = String.format(
+                "No agent command configured for message type '%s' in session '%s'. " +
+                "Please verify that the message type is defined in the agent configuration file.",
+                session.messageType(), session.sessionId()
+            );
+            logger.error(error);
+            return CompletableFuture.failedFuture(new CommandException(error));
+        }
 
         // Ensure ready signal is initialized (should already be done in init())
         if (readySignal == null) {
@@ -396,16 +420,20 @@ public class WebSocketNotificationService implements MessageService {
                 logger.info("Reviewer notes for session {}: {}", session.sessionId(), taskResponse);
                 break;
             case "READY":
-                logger.debug("Server is ready on the WebSocket to receive messages for session {} : {}",
-                             session.sessionId(), taskResponse);
-                
+                logger.info("Server READY response: sessionId={}, checkpointId={}, previousCheckpointId={}",
+                            session.sessionId(), taskResponse
+                        .data()
+                        .checkpointId(), commandSession.checkPointId());
+
                 // Update checkpoint_id from READY event
                 String newCheckpointId = taskResponse.data().checkpointId();
                 if (newCheckpointId != null && !newCheckpointId.equals(commandSession.checkPointId())) {
                     logger.debug("Updating checkpoint_id: {} -> {}", commandSession.checkPointId(), newCheckpointId);
-                    commandSession = CommandSessionBuilder.withUpdatedCheckpoint(commandSession, newCheckpointId).build();
-                    logger.info("Reconstructed CommandSession with new checkpoint_id: {} for session: {}", 
-                               newCheckpointId, session.sessionId());
+                    commandSession = CommandSessionBuilder
+                            .withUpdatedCheckpoint(commandSession, newCheckpointId)
+                            .build();
+                    logger.info("Reconstructed CommandSession with new checkpoint_id: {} for session: {}",
+                                newCheckpointId, session.sessionId());
                 } else {
                     logger.debug("Checkpoint_id unchanged or null: {}", newCheckpointId);
                 }
@@ -437,12 +465,14 @@ public class WebSocketNotificationService implements MessageService {
 
 
     protected void handleWebSocketError(CommandSession session, String error) {
-        logger.error("WebSocket error for notification event {}: {}", session.sessionId(), error);
+        logger.error("WebSocket error for session {}: {} [checkpoint_id={}, attempt={}, reconnecting={}, " +
+                             "ready_pending={}]", session.sessionId(), error, session.checkPointId(),
+                     session.attemptCount(), isReconnecting, readySignalPending);
 
         // Check if we're in a reconnection scenario
         if (isReconnecting) {
-            logger.debug("WebSocket error occurred during reconnection for session: {} - " +
-                        "skipping ready signal completion to allow reconnection to proceed", session.sessionId());
+            logger.debug("WebSocket error occurred during reconnection for session: {} - " + "skipping ready signal " +
+                                 "completion to allow reconnection to proceed", session.sessionId());
             return;
         }
 
@@ -533,14 +563,21 @@ public class WebSocketNotificationService implements MessageService {
 
             AgentRequestBuilder builder = new AgentRequestBuilder();
 
-            builder.baseData().sessionId(sessionId).agentType("cli").userData().permissions("rwx").tools(mcpServers, agentCommand.tools());
+            builder
+                    .baseData()
+                    .sessionId(sessionId)
+                    .agentType("cli")
+                    .userData()
+                    .permissions("rwx")
+                    .tools(mcpServers, agentCommand.tools());
 
-            TaskBaseDataBuilder taskBaseDataBuilder = builder.taskBaseData()
+            TaskBaseDataBuilder taskBaseDataBuilder = builder
+                    .taskBaseData()
                     .systemPrompt(agentCommand.systemPrompt())
                     .instructions(instructions)
                     .cwd(System.getProperty("user.dir"))
                     .addProjectRootPath(System.getProperty("user.dir"));
-            
+
             // Set project structure if available
             if (commandSession.projectStringStructure() != null) {
                 taskBaseDataBuilder.projectStructure(commandSession.projectStringStructure());
@@ -622,8 +659,8 @@ public class WebSocketNotificationService implements MessageService {
                 return;
             } else {
                 int argsSize = toolData.toolArgs() != null ? toolData.toolArgs().size() : 0;
-                logger.info("MCPServer: {}.{}.args({}) is initialized {} ",
-                            serverName, toolName, argsSize, freshClient.isInitialized());
+                logger.info("MCPServer: {}.{}.args({}) is initialized {} ", serverName, toolName, argsSize,
+                            freshClient.isInitialized());
             }
             McpSchema.CallToolRequest callToolRequest = McpSchema.CallToolRequest
                     .builder()

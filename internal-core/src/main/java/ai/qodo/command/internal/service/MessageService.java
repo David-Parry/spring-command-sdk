@@ -17,4 +17,6 @@ public interface MessageService {
     void process();
 
     void init(CommandSession commandSession);
+
+    String serviceKey();
 }

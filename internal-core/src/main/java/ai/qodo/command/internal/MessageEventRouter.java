@@ -13,6 +13,7 @@ import ai.qodo.command.internal.config.MCPClientInitializer;
 import ai.qodo.command.internal.mcp.AgentCommand;
 import ai.qodo.command.internal.mcp.EnvSubstitution;
 import ai.qodo.command.internal.mcp.McpConfig;
+import ai.qodo.command.internal.metrics.AgentConfigMetrics;
 import ai.qodo.command.internal.pojo.CommandSession;
 import ai.qodo.command.internal.pojo.CommandSessionBuilder;
 import ai.qodo.command.internal.pojo.WebSocketIds;
@@ -51,14 +52,17 @@ public class MessageEventRouter implements MessageRouter {
     private final ObjectMapper objectMapper;
     private final MCPClientInitializer mcpClientInitializer;
     private final AgentConfigManager agentConfigManager;
+    private final AgentConfigMetrics agentConfigMetrics;
 
     @Autowired
     public MessageEventRouter(ApplicationContext applicationContext, ObjectMapper objectMapper,
-                              AgentConfigManager agentConfigManager, MCPClientInitializer mcpClientInitializer) {
+                              AgentConfigManager agentConfigManager, MCPClientInitializer mcpClientInitializer,
+                              AgentConfigMetrics agentConfigMetrics) {
         this.applicationContext = applicationContext;
         this.objectMapper = objectMapper;
         this.agentConfigManager = agentConfigManager;
         this.mcpClientInitializer = mcpClientInitializer;
+        this.agentConfigMetrics = agentConfigMetrics;
     }
 
     @Override
@@ -67,7 +71,7 @@ public class MessageEventRouter implements MessageRouter {
         // should always be able to have a service name but if one can not be created then go to the incomplete
         String serviceName = INCOMPLETE_NODE_SERVICE;
         try {
-            logger.debug("Processing message: {}", message);
+            logger.debug("Processing message: ||\n {} ||\n", message);
 
             // Parse the message to extract the type field
             JsonNode messageNode = objectMapper.readTree(message);
@@ -107,10 +111,32 @@ public class MessageEventRouter implements MessageRouter {
                     .projectStringStructure(projectStructure);
             AgentCommand command = agentConfigManager.getAgentConfig().commands().get(messageType);
             if (command != null) {
+                // Record successful lookup
+                agentConfigMetrics.recordSuccessfulLookup(messageType);
+                
                 McpConfig substitutedMcpConfig = EnvSubstitution.substitute(command.mcpConfig());
                 Map<String, McpSyncClient> clients = mcpClientInitializer.loadSyncClients(substitutedMcpConfig,
                                                                                           getSessionAbsolutePath(webSocketIds.sessionId()));
                 commandSessionBuilder.agentCommand(command).mcpClients(clients);
+            } else {
+                // Record missing command metric
+                agentConfigMetrics.recordMissingCommand(messageType);
+                
+                // Log warning for missing agent command
+                logger.warn("No agent command configured for message type '{}'. Session: {}, EventKey: {}", 
+                           messageType, webSocketIds.sessionId(), eventKey);
+                
+                // Only allow EndFlowCleanup to proceed without agent command
+                if (!messageType.equalsIgnoreCase(EndFlowCleanup.TYPE)) {
+                    logger.error("Message type '{}' requires an agent command configuration but none was found. " +
+                                "Please add this message type to the agent configuration file.", messageType);
+                    throw new MissingAgentCommandException(
+                        String.format("No agent command configured for message type '%s'. " +
+                                     "Available commands: %s", 
+                                     messageType, 
+                                     agentConfigManager.getAgentConfig().commands().keySet())
+                    );
+                }
             }
             commandSession = commandSessionBuilder.build();
             if (messageType.equalsIgnoreCase(EndFlowCleanup.TYPE)) {
@@ -121,7 +147,7 @@ public class MessageEventRouter implements MessageRouter {
             MessageService service = applicationContext.getBean(serviceName, MessageService.class);
             service.init(commandSession);
             service.process();
-            logger.info("Successfully processed routed messageType '{}' to service '{}'", messageType, service);
+            logger.info("Successfully processed routed messageType '{}' to service with service key '{}'", messageType, service.serviceKey());
         } catch (BeansException be) {
             logger.error("Service not present if '{}' == '{}' this means the LLM did not return with complete " +
                                  "messages or it gave up. You can implement a service to handle this case for the " +

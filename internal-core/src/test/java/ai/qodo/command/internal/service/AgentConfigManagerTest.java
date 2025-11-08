@@ -68,7 +68,7 @@ class AgentConfigManagerTest {
         assertEquals(3, loadedConfig.commands().size(), "Should have 3 commands");
         assertTrue(loadedConfig.commands().containsKey("snyk_agent"), "Should contain snyk_agent command");
         assertTrue(loadedConfig.commands().containsKey("jira_agent"), "Should contain jira_agent command");
-        assertTrue(loadedConfig.commands().containsKey("bug_coding_agent"), "Should contain bug_coding_agent command");
+        assertTrue(loadedConfig.commands().containsKey("coding_agent"), "Should contain coding_agent command");
     }
 
     @Test
@@ -277,9 +277,9 @@ class AgentConfigManagerTest {
         assertNotNull(jiraAgent, "jira_agent should not be null");
         
         // Verify bug_coding_agent
-        assertTrue(commands.containsKey("bug_coding_agent"), "Should contain bug_coding_agent");
-        AgentCommand bugCodingAgent = commands.get("bug_coding_agent");
-        assertNotNull(bugCodingAgent, "bug_coding_agent should not be null");
+        assertTrue(commands.containsKey("coding_agent"), "Should contain coding_agent");
+        AgentCommand bugCodingAgent = commands.get("coding_agent");
+        assertNotNull(bugCodingAgent, "coding_agent should not be null");
     }
 
     @Test
@@ -351,7 +351,7 @@ class AgentConfigManagerTest {
         
         commands.put("snyk_agent", snykAgent);
         commands.put("jira_agent", jiraAgent);
-        commands.put("bug_coding_agent", bugCodingAgent);
+        commands.put("coding_agent", bugCodingAgent);
         
         return new AgentConfig(
             "1.0",

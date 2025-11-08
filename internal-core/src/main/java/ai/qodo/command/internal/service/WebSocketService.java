@@ -14,6 +14,7 @@ import ai.qodo.command.internal.api.WireMsgRouteKey;
 import ai.qodo.command.internal.config.QodoProperties;
 import ai.qodo.command.internal.metrics.WebSocketMetrics;
 import ai.qodo.command.internal.pojo.CommandSession;
+import ai.qodo.command.internal.pojo.CommandSessionBuilder;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.*;
@@ -78,6 +79,7 @@ public class WebSocketService {
     private final AtomicBoolean intentionalClose = new AtomicBoolean(false);
     private final AtomicBoolean expectedClose = new AtomicBoolean(false);
     private final AtomicInteger reconnectAttempts = new AtomicInteger(0);
+    private final WebSocketCircuitBreaker circuitBreaker;
     // Lifecycle state tracking
     private volatile LifecycleState lifecycleState = LifecycleState.CREATED;
     // Metrics fields
@@ -134,11 +136,14 @@ public class WebSocketService {
             return t;
         }, new ThreadPoolExecutor.CallerRunsPolicy());
 
+        // Initialize circuit breaker with default settings
+        this.circuitBreaker = new WebSocketCircuitBreaker();
+
         // Bind metrics if available
         bindMetricsIfEnabled();
 
         logger.info("[{}] WebSocketService initialized (ping={}s, pongTimeout={}s, connectTimeout={}s, " +
-                            "maxReconnects={}, metrics={})", instanceId, pingInterval.toSeconds(),
+                            "maxReconnects={}, metrics={}, circuitBreaker=enabled)", instanceId, pingInterval.toSeconds(),
                     pongTimeout.toSeconds(), connectionTimeout.toSeconds(), qodoProperties
                 .getWebsocket()
                 .getMaxReconnectAttempts(), meterRegistry != null ? "enabled" : "disabled");
@@ -263,12 +268,24 @@ public class WebSocketService {
                                                 Consumer<TaskResponse> messageHandler, Consumer<String> errorHandler,
                                                 Runnable reconnectionCallback, boolean isReconnect) {
 
+        // Check circuit breaker before attempting connection
+        if (!circuitBreaker.shouldAttemptConnection()) {
+            String message = String.format("Circuit breaker is OPEN - blocking connection attempt. %s",
+                                         circuitBreaker.getStatusMessage());
+            logger.error("[{}] {}", instanceId, message);
+            
+            CompletableFuture<WebSocket> failedFuture = new CompletableFuture<>();
+            failedFuture.completeExceptionally(new CommandException(message));
+            return failedFuture;
+        }
+
         // Create and store the connection future for exception propagation
         this.connectionFuture = new CompletableFuture<>();
 
         // Update lifecycle state
         lifecycleState = LifecycleState.CONNECTING;
-        logger.info("[{}] Lifecycle state: {} -> CONNECTING", instanceId, lifecycleState);
+        logger.info("[{}] Lifecycle state: {} -> CONNECTING (circuit breaker: {})", 
+                   instanceId, lifecycleState, circuitBreaker.getState());
 
         // Check if this instance already has a connection
         if (connection != null && connection.isConnected().get()) {
@@ -324,6 +341,10 @@ public class WebSocketService {
                     // Update metrics - Note: increment happens in onOpen callback
                     connectionStatus.set(1);
 
+                    // Record successful connection in circuit breaker
+                    circuitBreaker.recordSuccess();
+                    logger.debug("[{}] Circuit breaker recorded success: {}", instanceId, circuitBreaker.getStatusMessage());
+
                     // Start ping/pong mechanism
                     startPingPong();
 
@@ -338,6 +359,10 @@ public class WebSocketService {
                     
                     // Reset lifecycle state on failure
                     lifecycleState = LifecycleState.CREATED;
+                    
+                    // Record failure in circuit breaker
+                    circuitBreaker.recordFailure();
+                    logger.warn("[{}] Circuit breaker recorded failure: {}", instanceId, circuitBreaker.getStatusMessage());
                     
                     if (errorHandler != null) {
                         errorHandler.accept("Connection failed: " + throwable.getMessage());
@@ -685,11 +710,22 @@ public class WebSocketService {
                     throw new CommandException("Cannot reconnect - no session context available");
                 }
 
-                logger.info("[{}] Attempting reconnection {}/{} for session {}", instanceId, attempts,
-                            maxAttemptsInner, lastSession.sessionId());
+                // Create new session with fresh request ID for this reconnection attempt
+                CommandSession reconnectSession = CommandSessionBuilder
+                    .fromSessionWithNewRequestId(lastSession)
+                    .build();
+
+                logger.info("[{}] Attempting reconnection {}/{} for session {} with new request_id: {} (old: {})", 
+                    instanceId, attempts, maxAttemptsInner, 
+                    reconnectSession.sessionId(), 
+                    reconnectSession.requestId(),
+                    lastSession.requestId());
+
+                // Update lastSession with the new one for future reconnections
+                lastSession = reconnectSession;
 
                 // Pass true for isReconnect to include checkpoint_id in URL
-                connect(lastSession, lastToken, lastMessageHandler, lastErrorHandler, null, true).thenAccept(ws -> {
+                connect(reconnectSession, lastToken, lastMessageHandler, lastErrorHandler, null, true).thenAccept(ws -> {
                     if (ws != null && !ws.isInputClosed() && !ws.isOutputClosed()) {
                         logger.info("[{}] Successfully reconnected on attempt {}/{}", instanceId, attempts,
                                     maxAttemptsInner);
