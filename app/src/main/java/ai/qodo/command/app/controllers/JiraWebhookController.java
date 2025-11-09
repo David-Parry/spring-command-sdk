@@ -76,9 +76,6 @@ public class JiraWebhookController {
     private final JiraWebhookValidator jiraWebhookValidator;
     private final JiraAgentProperties agentProperties;
 
-    @Value("${jira.webhook.max-timestamp-age-seconds:300}")
-    private long maxTimestampAgeSeconds;
-
     @Value("${messaging.queue.event}")
     private String eventTopic;
 
