@@ -2,6 +2,11 @@
 
 A production-ready Spring Boot SDK for building AI-powered automation systems that respond to webhooks, process events, and execute intelligent workflows. The Command SDK provides a robust framework for integrating AI agents with enterprise tools like Jira, Snyk, GitHub, and custom services through the Model Context Protocol (MCP).
 
+## Who Is This For?
+
+- **Customers**: Use and extend the `app` module to add your webhook controllers, handlers, schedulers, and agent workflows. See Quick Start for running locally or with Docker.
+- **Contributors**: Enhance the framework in `internal-core` (messaging, MCP integration, metrics, health). See CONTRIBUTING.md for development guidelines.
+
 ## What is Command SDK?
 
 Command SDK is an enterprise-grade framework that bridges the gap between external events (webhooks, scheduled tasks) and AI-powered automation. It provides:
@@ -182,6 +187,11 @@ This module contains the core framework code that **should NOT be modified** by 
 
 ## Quick Start
 
+> **Note on Ports**
+> - **Local (Gradle)**: Defaults to `8080`
+> - **Docker Compose**: Defaults to `8081` (configured via `SERVER_PORT` in compose)
+> - All actuator endpoints are served under `/actuator` on the same port.
+
 ### Prerequisites
 
 - Java 21 or higher
@@ -189,7 +199,7 @@ This module contains the core framework code that **should NOT be modified** by 
 - Docker and Docker Compose (for containerized deployment)
 - ActiveMQ (can be run via Docker)
 
-### Running the Application
+### Running Locally (Gradle)
 
 ```bash
 # Clone the repository
@@ -199,17 +209,37 @@ cd command-sdk
 # Build the project
 ./gradlew clean build
 
-# Run with default settings
-./gradlew bootRun
-
-# Custom port
-./gradlew bootRun --args='--server.port=8082'
-
-# With ActiveMQ
+# Run with default settings (port 8080)
+export WEBSOCKET_TOKEN=your-token-here
 export MESSAGING_PROVIDER=activemq
 export MESSAGING_ACTIVEMQ_BROKER_URL=tcp://localhost:61616
-export WEBSOCKET_TOKEN=your-token-here
 ./gradlew bootRun
+
+# Verify health (local default: 8080)
+curl http://localhost:8080/actuator/health
+
+# View metrics
+curl http://localhost:8080/actuator/prometheus
+```
+
+### Environment Variables (Local)
+
+```bash
+# Required
+export WEBSOCKET_TOKEN=your-websocket-token
+
+# Messaging (ActiveMQ)
+export MESSAGING_PROVIDER=activemq
+export MESSAGING_ACTIVEMQ_BROKER_URL=tcp://localhost:61616
+export MESSAGING_ACTIVEMQ_USERNAME=qodo
+export MESSAGING_ACTIVEMQ_PASSWORD=qodo
+
+# Optional: Webhook secrets
+export JIRA_WEBHOOK_SECRET=your-jira-secret
+export GITHUB_API_TOKEN=your-github-token
+
+# Optional: MCP timeout
+export QODO_MCP_REQUEST_TIMEOUT_SECONDS=300
 ```
 
 ---
@@ -223,12 +253,11 @@ export WEBSOCKET_TOKEN=your-token-here
 git clone https://github.com/davidparry/command-sdk.git
 cd command-sdk
 
-# Create .env file from example
-cp .env.example .env
-# Edit .env and set your configuration values
-
-# Start all services (ActiveMQ + Command SDK)
+# Start all services (ActiveMQ + Command SDK + Prometheus + Grafana)
 docker-compose -f docker/docker-compose.yml up -d
+
+# Verify health (Docker default: 8081)
+curl http://localhost:8081/actuator/health
 
 # View logs
 docker-compose -f docker/docker-compose.yml logs -f command-sdk
@@ -249,6 +278,12 @@ The `docker/docker-compose.yml` includes:
    - API: http://localhost:8081
    - Health: http://localhost:8081/actuator/health
    - Metrics: http://localhost:8081/actuator/prometheus
+
+3. **Prometheus** - Metrics collection and alerting
+   - Web UI: http://localhost:9090
+
+4. **Grafana** - Metrics visualization and dashboards
+   - Web UI: http://localhost:3000 (admin/admin)
 
 ### Building Docker Image
 
@@ -302,9 +337,22 @@ The Docker setup includes volume mounts for:
 
 ---
 
-## Pre-Built Agents
+## Agent Configurations
 
-The Command SDK comes with three production-ready AI agents:
+This SDK supports agent workflows defined in YAML. The following describe example agent scenarios you can implement via your own `agent.yml`. **These are not bundled by default.**
+
+### Supplying agent.yml
+
+- **Default location**: `qodo.agent.configFile=classpath:agent.yml`
+- **Override via environment variable**:
+  ```bash
+  export QODO_AGENT_CONFIG_FILE=file:/absolute/path/to/agent.yml
+  ```
+- **For Docker**: Ensure the file is available to the container (mount a host path or bake into the image)
+
+> **Note**: If the agent command is not recognized, verify that `QODO_AGENT_CONFIG_FILE` points to your `agent.yml` and that command names match handler bean names (see Handler Pattern in Developer Guide).
+
+### Example Agent Scenarios
 
 ### 1. **Snyk Security Agent** (`snyk_agent`)
 
@@ -343,7 +391,7 @@ The Command SDK comes with three production-ready AI agents:
 # Requires: ATLASSIAN_EMAIL, ATLASSIAN_SITE_URL, ATLASSIAN_API_TOKEN
 ```
 
-### 3. **Bug Coding Agent** (`bug_coding_agent`)
+### 3. **Coding Agent** (`coding_agent`)
 
 **Purpose**: Automatically fixes bugs based on Jira tickets.
 
@@ -783,10 +831,10 @@ The mapping works as follows:
 **Real Examples from this Project:**
 
 | agent.yml Command Name | Handler Class | @Service Annotation | Bean Name |
-|------------------------|---------------|---------------------|-----------|
+|--------------------|---------------|---------------------|-----------|
 | `snyk_agent` | `SnykAgentHandler` | `@Service("snyk_agent" + HANDLER_SUFFIX)` | `snyk_agent-handler` |
 | `jira_agent` | `JiraAgentHandler` | `@Service("jira_agent" + HANDLER_SUFFIX)` | `jira_agent-handler` |
-| `bug_coding_agent` | `BugCodingAgentHandler` | `@Service("bug_coding_agent" + HANDLER_SUFFIX)` | `bug_coding_agent-handler` |
+| `coding_agent` | `CodingAgentHandler` | `@Service("coding_agent" + HANDLER_SUFFIX)` | `coding_agent-handler` |
 
 **How the Framework Finds Your Handler:**
 
@@ -1388,12 +1436,29 @@ curl -X POST http://localhost:8080/api/webhooks/jira/PROJ-123 \
 
 ---
 
+## Security and Secrets
+
+- **Use environment variables** for tokens and webhook secrets; never commit secrets to version control
+- **Validate webhook signatures** using the raw request body (not parsed JSON)
+- **Avoid logging sensitive data** (PII, tokens, passwords, API keys)
+- **Limit tools** with `QODO_BLOCKED_TOOLS` when necessary to restrict agent capabilities
+- **Use HTTPS** for all external webhook endpoints in production
+- **Rotate secrets regularly** and use secret management tools (Vault, AWS Secrets Manager) in production
+
+---
+
 ## Troubleshooting
 
 ### Handler Not Found
 - Verify handler bean name matches: `{agent_type}-handler`
 - Check `@Service` annotation includes correct name
 - Ensure handler implements `Handler` interface
+
+### Agent Command or Config Not Found
+- Verify `QODO_AGENT_CONFIG_FILE` is set and points to a readable file
+- If using classpath: ensure `agent.yml` is packaged in the running app
+- Confirm command names in `agent.yml` match handler bean names (`{command}-handler`)
+- Check logs for agent initialization errors
 
 ### Messages Not Processing
 - Check ActiveMQ is running: `docker-compose -f docker/docker-compose.yml up activemq`
@@ -1404,6 +1469,12 @@ curl -X POST http://localhost:8080/api/webhooks/jira/PROJ-123 \
 - Verify webhook secret matches configuration
 - Check signature algorithm (SHA256 vs SHA1)
 - Ensure raw body is used for validation (not parsed JSON)
+
+### MCP Tool Timeouts
+- Increase `QODO_MCP_REQUEST_TIMEOUT_SECONDS` for long-running operations
+- Check MCP server logs for errors
+- Verify MCP server is running and accessible
+- Monitor tool execution times via Prometheus metrics
 
 ---
 

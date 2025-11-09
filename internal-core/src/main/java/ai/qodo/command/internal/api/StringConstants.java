@@ -18,7 +18,12 @@ public enum StringConstants {
     SUCCESS("success"),
     TYPE("type"),
     USER_HOME("user.home"),
-    PROJECT_STRUCTURE("project_structure");
+    PROJECT_STRUCTURE("project_structure"),
+    REQUEST_ID("requestId"),
+    CHECKPOINT_ID("checkPointId"),
+    MESSAGE_TYP("messageType"),
+    LLM_CONVERSATION("llmConversation");
+
 
     private final String value;
 

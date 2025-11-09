@@ -14,6 +14,7 @@ import ai.qodo.command.internal.api.WireMsgRouteKey;
 import ai.qodo.command.internal.config.QodoProperties;
 import ai.qodo.command.internal.metrics.WebSocketMetrics;
 import ai.qodo.command.internal.pojo.CommandSession;
+import ai.qodo.command.internal.pojo.CommandSessionBuilder;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.*;
@@ -78,6 +79,7 @@ public class WebSocketService {
     private final AtomicBoolean intentionalClose = new AtomicBoolean(false);
     private final AtomicBoolean expectedClose = new AtomicBoolean(false);
     private final AtomicInteger reconnectAttempts = new AtomicInteger(0);
+    private final WebSocketCircuitBreaker circuitBreaker;
     // Lifecycle state tracking
     private volatile LifecycleState lifecycleState = LifecycleState.CREATED;
     // Metrics fields
@@ -92,6 +94,8 @@ public class WebSocketService {
     private volatile String lastToken;
     private volatile Consumer<TaskResponse> lastMessageHandler;
     private volatile Consumer<String> lastErrorHandler;
+    // Track the current connection future for exception propagation
+    private volatile CompletableFuture<WebSocket> connectionFuture;
     // Meter references for cleanup
     private Meter.Id connectionStatusMeterId;
     private Meter.Id lastPongAgeMeterId;
@@ -132,11 +136,14 @@ public class WebSocketService {
             return t;
         }, new ThreadPoolExecutor.CallerRunsPolicy());
 
+        // Initialize circuit breaker with default settings
+        this.circuitBreaker = new WebSocketCircuitBreaker();
+
         // Bind metrics if available
         bindMetricsIfEnabled();
 
         logger.info("[{}] WebSocketService initialized (ping={}s, pongTimeout={}s, connectTimeout={}s, " +
-                            "maxReconnects={}, metrics={})", instanceId, pingInterval.toSeconds(),
+                            "maxReconnects={}, metrics={}, circuitBreaker=enabled)", instanceId, pingInterval.toSeconds(),
                     pongTimeout.toSeconds(), connectionTimeout.toSeconds(), qodoProperties
                 .getWebsocket()
                 .getMaxReconnectAttempts(), meterRegistry != null ? "enabled" : "disabled");
@@ -237,7 +244,7 @@ public class WebSocketService {
      */
     public CompletableFuture<WebSocket> connect(CommandSession session, String token,
                                                 Consumer<TaskResponse> messageHandler, Consumer<String> errorHandler) {
-        return connect(session, token, messageHandler, errorHandler, null);
+        return connect(session, token, messageHandler, errorHandler, null, false);
     }
 
     /**
@@ -249,10 +256,36 @@ public class WebSocketService {
     public CompletableFuture<WebSocket> connect(CommandSession session, String token,
                                                 Consumer<TaskResponse> messageHandler, Consumer<String> errorHandler,
                                                 Runnable reconnectionCallback) {
+        return connect(session, token, messageHandler, errorHandler, reconnectionCallback, false);
+    }
+
+    /**
+     * Internal connect method with explicit reconnection flag.
+     * 
+     * @param isReconnect true if this is a reconnection attempt, false for initial connection
+     */
+    private CompletableFuture<WebSocket> connect(CommandSession session, String token,
+                                                Consumer<TaskResponse> messageHandler, Consumer<String> errorHandler,
+                                                Runnable reconnectionCallback, boolean isReconnect) {
+
+        // Check circuit breaker before attempting connection
+        if (!circuitBreaker.shouldAttemptConnection()) {
+            String message = String.format("Circuit breaker is OPEN - blocking connection attempt. %s",
+                                         circuitBreaker.getStatusMessage());
+            logger.error("[{}] {}", instanceId, message);
+            
+            CompletableFuture<WebSocket> failedFuture = new CompletableFuture<>();
+            failedFuture.completeExceptionally(new CommandException(message));
+            return failedFuture;
+        }
+
+        // Create and store the connection future for exception propagation
+        this.connectionFuture = new CompletableFuture<>();
 
         // Update lifecycle state
         lifecycleState = LifecycleState.CONNECTING;
-        logger.info("[{}] Lifecycle state: {} -> CONNECTING", instanceId, lifecycleState);
+        logger.info("[{}] Lifecycle state: {} -> CONNECTING (circuit breaker: {})", 
+                   instanceId, lifecycleState, circuitBreaker.getState());
 
         // Check if this instance already has a connection
         if (connection != null && connection.isConnected().get()) {
@@ -271,21 +304,26 @@ public class WebSocketService {
         this.lastToken = effectiveToken;
         this.lastMessageHandler = messageHandler;
         this.lastErrorHandler = errorHandler;
-        this.reconnectAttempts.set(0);
+        
+        // Only reset reconnect attempts if this is NOT a reconnection
+        if (!isReconnect) {
+            this.reconnectAttempts.set(0);
+        }
         this.intentionalClose.set(false);
 
         // Generate WebSocket URL using the session (includes checkpoint_id if this is a reconnect)
         String wsBase = qodoProperties.getBaseUrl().replaceFirst("^http", "ws").replaceAll("/+$", "");
-        boolean isReconnect = reconnectAttempts.get() > 0;
         String wsUrl = session.generateWebSocketUrl(wsBase, isReconnect);
 
-        logger.info("[{}] Connecting to WebSocket for session {} (reconnect={}): {}", 
-                   instanceId, session.sessionId(), isReconnect, wsUrl);
+        logger.info("[{}] Connecting to WebSocket for session {} (reconnect={}, checkpoint_id={}): {}", 
+                   instanceId, session.sessionId(), isReconnect, 
+                   isReconnect ? session.checkPointId() : "N/A", wsUrl);
 
         HttpClient client = HttpClient.newBuilder().connectTimeout(connectionTimeout).build();
         WebSocketListener listener = new WebSocketListener(session.sessionId(), messageHandler, errorHandler);
 
-        return client
+        // Build the WebSocket connection asynchronously
+        client
                 .newWebSocketBuilder()
                 .header("Authorization", "Bearer " + effectiveToken)
                 .buildAsync(URI.create(wsUrl), listener)
@@ -303,6 +341,10 @@ public class WebSocketService {
                     // Update metrics - Note: increment happens in onOpen callback
                     connectionStatus.set(1);
 
+                    // Record successful connection in circuit breaker
+                    circuitBreaker.recordSuccess();
+                    logger.debug("[{}] Circuit breaker recorded success: {}", instanceId, circuitBreaker.getStatusMessage());
+
                     // Start ping/pong mechanism
                     startPingPong();
 
@@ -318,14 +360,33 @@ public class WebSocketService {
                     // Reset lifecycle state on failure
                     lifecycleState = LifecycleState.CREATED;
                     
+                    // Record failure in circuit breaker
+                    circuitBreaker.recordFailure();
+                    logger.warn("[{}] Circuit breaker recorded failure: {}", instanceId, circuitBreaker.getStatusMessage());
+                    
                     if (errorHandler != null) {
                         errorHandler.accept("Connection failed: " + throwable.getMessage());
                     }
 
-                    // Schedule reconnect or throw exception
+                    // Schedule reconnect or complete future exceptionally
                     scheduleReconnect("initial connection failure");
                     return null;
+                })
+                .whenComplete((ws, error) -> {
+                    // Complete the stored connection future with the result
+                    if (error != null) {
+                        if (!connectionFuture.isDone()) {
+                            connectionFuture.completeExceptionally(error);
+                        }
+                    } else {
+                        if (!connectionFuture.isDone()) {
+                            connectionFuture.complete(ws);
+                        }
+                    }
                 });
+        
+        // Return the stored connection future for exception propagation
+        return connectionFuture;
     }
 
     /**
@@ -615,14 +676,23 @@ public class WebSocketService {
         int attempts = reconnectAttempts.incrementAndGet();
         int maxAttempts = qodoProperties.getWebsocket().getMaxReconnectAttempts();
 
-        // If max attempts reached, throw exception to trigger JMS rollback
+        // If max attempts reached, complete the connection future exceptionally to propagate to JMS thread
         if (attempts > maxAttempts) {
             logger.error("[{}] Max reconnect attempts ({}) exhausted for cause: {}", instanceId, maxAttempts, cause);
             reconnecting.set(false);
 
-            // Throw CommandException to trigger JMS transaction rollback
-            throw new CommandException(String.format("WebSocket connection failed after %d reconnect attempts - %s",
-                                                     maxAttempts, cause));
+            // Complete the connection future exceptionally to propagate exception to JMS thread
+            if (connectionFuture != null && !connectionFuture.isDone()) {
+                CommandException exception = new CommandException(
+                    String.format("WebSocket connection failed after %d reconnect attempts - %s",
+                                 maxAttempts, cause)
+                );
+                connectionFuture.completeExceptionally(exception);
+                logger.info("[{}] Completed connection future exceptionally to trigger JMS rollback", instanceId);
+            } else {
+                logger.warn("[{}] Connection future is null or already done, cannot propagate exception", instanceId);
+            }
+            return;
         }
 
         Duration delay = calculateBackoffDelay(attempts);
@@ -640,10 +710,22 @@ public class WebSocketService {
                     throw new CommandException("Cannot reconnect - no session context available");
                 }
 
-                logger.info("[{}] Attempting reconnection {}/{} for session {}", instanceId, attempts,
-                            maxAttemptsInner, lastSession.sessionId());
+                // Create new session with fresh request ID for this reconnection attempt
+                CommandSession reconnectSession = CommandSessionBuilder
+                    .fromSessionWithNewRequestId(lastSession)
+                    .build();
 
-                connect(lastSession, lastToken, lastMessageHandler, lastErrorHandler).thenAccept(ws -> {
+                logger.info("[{}] Attempting reconnection {}/{} for session {} with new request_id: {} (old: {})", 
+                    instanceId, attempts, maxAttemptsInner, 
+                    reconnectSession.sessionId(), 
+                    reconnectSession.requestId(),
+                    lastSession.requestId());
+
+                // Update lastSession with the new one for future reconnections
+                lastSession = reconnectSession;
+
+                // Pass true for isReconnect to include checkpoint_id in URL
+                connect(reconnectSession, lastToken, lastMessageHandler, lastErrorHandler, null, true).thenAccept(ws -> {
                     if (ws != null && !ws.isInputClosed() && !ws.isOutputClosed()) {
                         logger.info("[{}] Successfully reconnected on attempt {}/{}", instanceId, attempts,
                                     maxAttemptsInner);

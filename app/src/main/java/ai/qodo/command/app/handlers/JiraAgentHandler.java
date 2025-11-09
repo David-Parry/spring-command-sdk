@@ -25,7 +25,7 @@ import static ai.qodo.command.internal.api.Handler.HANDLER_SUFFIX;
 @Scope("prototype")
 public class JiraAgentHandler extends BaseHandler {
 
-    public static final String JIRA_BUG_ACTIONABLE = "bug_coding_agent";
+    public static final String JIRA_BUG_ACTIONABLE = "coding_agent";
     private static final Logger logger = LoggerFactory.getLogger(JiraAgentHandler.class);
 
     public JiraAgentHandler(MessagePublisher messagePublisher, ObjectMapper objectMapper) {
