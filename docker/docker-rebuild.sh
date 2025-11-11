@@ -2,14 +2,40 @@
 
 # Docker Complete Rebuild Script
 # This script performs a complete clean rebuild of the Docker environment
+#
+# Usage:
+#   ./docker-rebuild.sh              # Use ActiveMQ (default)
+#   ./docker-rebuild.sh activemq     # Use ActiveMQ explicitly
+#   ./docker-rebuild.sh local        # Use local queue (no ActiveMQ)
 
 set -e  # Exit on any error
 
-# Set the docker-compose file path (relative to scripts directory)
-COMPOSE_FILE="docker-compose.yml"
+# Parse command line argument
+MODE="${1:-activemq}"
+
+# Set the docker-compose file based on mode
+if [ "$MODE" = "local" ]; then
+    COMPOSE_FILE="docker-compose.local.yml"
+    MODE_NAME="LOCAL QUEUE"
+    MODE_DESC="(no ActiveMQ)"
+elif [ "$MODE" = "activemq" ]; then
+    COMPOSE_FILE="docker-compose.yml"
+    MODE_NAME="ACTIVEMQ"
+    MODE_DESC="(with ActiveMQ)"
+else
+    echo "❌ Invalid mode: $MODE"
+    echo ""
+    echo "Usage:"
+    echo "  ./docker-rebuild.sh              # Use ActiveMQ (default)"
+    echo "  ./docker-rebuild.sh activemq     # Use ActiveMQ explicitly"
+    echo "  ./docker-rebuild.sh local        # Use local queue (no ActiveMQ)"
+    exit 1
+fi
 
 echo "========================================="
 echo "Docker Complete Clean & Rebuild"
+echo "Mode: $MODE_NAME $MODE_DESC"
+echo "Using: $COMPOSE_FILE"
 echo "========================================="
 echo ""
 
@@ -127,14 +153,27 @@ echo ""
 
 echo "========================================="
 echo -e "${GREEN}✅ Complete rebuild finished!${NC}"
+echo "Mode: $MODE_NAME $MODE_DESC"
 echo "========================================="
 echo ""
 echo "Useful commands:"
-echo "  View logs:           docker-compose -f ../docker-compose.yml logs -f"
-echo "  View specific logs:  docker-compose -f ../docker-compose.yml logs -f command-sdk"
-echo "  Check status:        docker-compose -f ../docker-compose.yml ps"
-echo "  Stop services:       docker-compose -f ../docker-compose.yml down"
-echo "  Restart service:     docker-compose -f ../docker-compose.yml restart command-sdk"
+echo "  View logs:           docker-compose -f $COMPOSE_FILE logs -f"
+echo "  View specific logs:  docker-compose -f $COMPOSE_FILE logs -f command-sdk"
+echo "  Check status:        docker-compose -f $COMPOSE_FILE ps"
+echo "  Stop services:       docker-compose -f $COMPOSE_FILE down"
+echo "  Restart service:     docker-compose -f $COMPOSE_FILE restart command-sdk"
+echo ""
+if [ "$MODE" = "local" ]; then
+    echo "Local Queue Mode:"
+    echo "  Health check:        curl http://localhost:8081/actuator/health | jq '.components.localQueue'"
+    echo "  Queue metrics:       curl http://localhost:8081/actuator/metrics/local.queue.size"
+    echo "  Switch to ActiveMQ:  ./docker-rebuild.sh activemq"
+else
+    echo "ActiveMQ Mode:"
+    echo "  ActiveMQ Console:    http://localhost:8161/admin (admin/admin)"
+    echo "  Health check:        curl http://localhost:8081/actuator/health"
+    echo "  Switch to Local:     ./docker-rebuild.sh local"
+fi
 echo ""
 
 docker-compose -f $COMPOSE_FILE logs -f

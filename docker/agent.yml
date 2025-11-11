@@ -417,7 +417,7 @@ commands:
           - Use github_create_pr tool with parameters:
             * source_branch: {/issueKey}-agent-impl
             * target_branch: {default_branch} (from step 2, if you can not determine the target_branch leave empty the tool will use the default branch)
-            * title: "Fix: {/issueKey} - {issue_summary}"
+            * title: "Implementation: {/issueKey} - {issue_summary}"
             * description: Create comprehensive PR description including:
               ```markdown
               ## Jira Issue

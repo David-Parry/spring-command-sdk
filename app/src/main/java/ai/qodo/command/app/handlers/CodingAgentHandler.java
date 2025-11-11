@@ -8,6 +8,7 @@
 
 package ai.qodo.command.app.handlers;
 
+import ai.qodo.command.internal.api.Handler;
 import ai.qodo.command.internal.service.BaseHandler;
 import ai.qodo.command.internal.service.EndFlowCleanup;
 import ai.qodo.command.internal.service.MessagePublisher;
@@ -19,9 +20,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.Map;
 
-import static ai.qodo.command.internal.service.MessageService.SERVICE_SUFFIX;
-
-@Service("coding_agent" + SERVICE_SUFFIX)
+@Service("coding_agent" + Handler.HANDLER_SUFFIX)
 @Scope("prototype")
 public class CodingAgentHandler extends BaseHandler {
 
