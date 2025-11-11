@@ -47,6 +47,21 @@ messaging:
     broker-url: ${MESSAGING_ACTIVEMQ_BROKER_URL:tcp://localhost:61616}
     username: ${MESSAGING_ACTIVEMQ_USERNAME:qodo}
     password: ${MESSAGING_ACTIVEMQ_PASSWORD:qodo}
+  local:
+    # Maximum capacity for each queue (number of messages)
+    queue-capacity: ${LOCAL_QUEUE_CAPACITY:1000}
+    # Number of consumer threads per queue (1 ensures message ordering)
+    consumer-threads: ${LOCAL_CONSUMER_THREADS:1}
+    # Maximum number of retry attempts for failed messages
+    retry-attempts: ${LOCAL_RETRY_ATTEMPTS:3}
+    # Initial delay in milliseconds before first retry
+    retry-delay-ms: ${LOCAL_RETRY_DELAY_MS:1000}
+    # Maximum delay in milliseconds between retries (with exponential backoff)
+    max-retry-delay-ms: ${LOCAL_MAX_RETRY_DELAY_MS:30000}
+    # Timeout in seconds for polling messages from the queue
+    poll-timeout-seconds: ${LOCAL_POLL_TIMEOUT_SECONDS:5}
+    # Whether to use exponential backoff for retries
+    exponential-backoff: ${LOCAL_EXPONENTIAL_BACKOFF:true}
 
 # Server configuration
 server:
@@ -85,7 +100,7 @@ management:
       enabled: true
   health:
     jms:
-      enabled: true
+      enabled: ${JMS_HEALTH_ENABLED:true}
   metrics:
     tags:
       application: command-sdk

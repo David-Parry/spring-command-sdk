@@ -73,8 +73,13 @@ RUN chmod +x /app/docker-entrypoint.sh && \
     chown spring:spring /app/docker-entrypoint.sh
 
 
+# Install Maven
+RUN apk add --no-cache maven
+
+
 # Switch to non-root user
 USER spring
+
 
 RUN git config --global --add safe.directory '*'
 
