@@ -189,7 +189,7 @@ Refer to GETTING_STARTED.md for step-by-step instructions to:
 - Trigger flows from events (e.g., webhooks)
 - Environment variables and troubleshooting tips
 
-Direct link: GETTING_STARTED.md
+Direct link:  [GETTING_STARTED.md](GETTING_STARTED.md)
 
 ---
 
