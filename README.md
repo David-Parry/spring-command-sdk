@@ -24,9 +24,7 @@ Command SDK is an enterprise-grade framework that bridges the gap between extern
 - [Features](#features)
 - [Architecture Overview](#architecture-overview)
 - [Module Structure](#module-structure)
-- [Quick Start](#quick-start)
-- [Docker Deployment](#docker-deployment)
-- [Pre-Built Agents](#pre-built-agents)
+- [Getting Started](#getting-started)
 - [Health Checks & Monitoring](#health-checks--monitoring)
   - [Health Check Endpoints](#health-check-endpoints)
   - [Prometheus Metrics](#prometheus-metrics)
@@ -37,10 +35,7 @@ Command SDK is an enterprise-grade framework that bridges the gap between extern
   - [Creating a Custom Handler](#creating-a-custom-handler)
   - [Adding a Scheduler](#adding-a-scheduler)
   - [Extending Agent Workflows](#extending-agent-workflows)
-- [Configuration](#configuration)
 - [Messaging System](#messaging-system)
-- [Testing](#testing)
-- [Troubleshooting](#troubleshooting)
 - [Technology Stack](#technology-stack)
 
 ---
@@ -185,172 +180,32 @@ This module contains the core framework code that **should NOT be modified** by 
 
 ---
 
-## Quick Start
+## Getting Started
 
-> **Note on Ports**
-> - **Local (Gradle)**: Defaults to `8080`
-> - **Docker Compose**: Defaults to `8081` (configured via `SERVER_PORT` in compose)
-> - All actuator endpoints are served under `/actuator` on the same port.
+Refer to GETTING_STARTED.md for step-by-step instructions to:
+- Run locally with the internal in-memory queue or with ActiveMQ via Docker
+- Configure and wire agents via agent.yml
+- Implement handlers and control chaining/termination
+- Trigger flows from events (e.g., webhooks)
+- Environment variables and troubleshooting tips
 
-### Prerequisites
-
-- Java 21 or higher
-- Gradle 8.x
-- Docker and Docker Compose (for containerized deployment)
-- ActiveMQ (can be run via Docker)
-
-### Running Locally (Gradle)
-
-```bash
-# Clone the repository
-git clone https://github.com/davidparry/command-sdk.git
-cd command-sdk
-
-# Build the project
-./gradlew clean build
-
-# Run with default settings (port 8080)
-export WEBSOCKET_TOKEN=your-token-here
-export MESSAGING_PROVIDER=activemq
-export MESSAGING_ACTIVEMQ_BROKER_URL=tcp://localhost:61616
-./gradlew bootRun
-
-# Verify health (local default: 8080)
-curl http://localhost:8080/actuator/health
-
-# View metrics
-curl http://localhost:8080/actuator/prometheus
-```
-
-### Environment Variables (Local)
-
-```bash
-# Required
-export WEBSOCKET_TOKEN=your-websocket-token
-
-# Messaging (ActiveMQ)
-export MESSAGING_PROVIDER=activemq
-export MESSAGING_ACTIVEMQ_BROKER_URL=tcp://localhost:61616
-export MESSAGING_ACTIVEMQ_USERNAME=qodo
-export MESSAGING_ACTIVEMQ_PASSWORD=qodo
-
-# Optional: Webhook secrets
-export JIRA_WEBHOOK_SECRET=your-jira-secret
-export GITHUB_API_TOKEN=your-github-token
-
-# Optional: MCP timeout
-export QODO_MCP_REQUEST_TIMEOUT_SECONDS=300
-```
+Direct link: GETTING_STARTED.md
 
 ---
 
-## Docker Deployment
+## Docker
 
-### Quick Start with Docker Compose
-
-```bash
-# Clone the repository
-git clone https://github.com/davidparry/command-sdk.git
-cd command-sdk
-
-# Start all services (ActiveMQ + Command SDK + Prometheus + Grafana)
-docker-compose -f docker/docker-compose.yml up -d
-
-# Verify health (Docker default: 8081)
-curl http://localhost:8081/actuator/health
-
-# View logs
-docker-compose -f docker/docker-compose.yml logs -f command-sdk
-
-# Stop services
-docker-compose -f docker/docker-compose.yml down
-```
-
-### Docker Compose Services
-
-The `docker/docker-compose.yml` includes:
-
-1. **ActiveMQ** - Message broker for event processing
-   - Web Console: http://localhost:8161 (admin/admin)
-   - Broker URL: tcp://localhost:61616
-
-2. **Command SDK** - The main application
-   - API: http://localhost:8081
-   - Health: http://localhost:8081/actuator/health
-   - Metrics: http://localhost:8081/actuator/prometheus
-
-3. **Prometheus** - Metrics collection and alerting
-   - Web UI: http://localhost:9090
-
-4. **Grafana** - Metrics visualization and dashboards
-   - Web UI: http://localhost:3000 (admin/admin)
-
-### Building Docker Image
-
-```bash
-# Build the Docker image
-docker build -t command-sdk:latest .
-
-# Run standalone (requires external ActiveMQ)
-docker run -p 8081:8081 \
-  -e WEBSOCKET_TOKEN=your-token \
-  -e MESSAGING_ACTIVEMQ_BROKER_URL=tcp://host.docker.internal:61616 \
-  command-sdk:latest
-```
-
-### Environment Variables for Docker
-
-Create a `.env` file with:
-
-```bash
-# Required
-WEBSOCKET_TOKEN=your-websocket-token
-
-# ActiveMQ Configuration
-ACTIVEMQ_USERNAME=qodo
-ACTIVEMQ_PASSWORD=qodo
-
-# Webhook Secrets
-SNYK_WEBHOOK_SECRET=your-snyk-secret
-JIRA_WEBHOOK_SECRET=your-jira-secret
-
-# Atlassian/Jira Configuration
-ATLASSIAN_EMAIL=your-email@company.com
-ATLASSIAN_SITE_URL=https://your-company.atlassian.net
-ATLASSIAN_API_TOKEN=your-atlassian-api-token
-
-# Git Configuration (for agents that use Git)
-GIT_SSH_PRIVATE_KEY=your-ssh-private-key
-
-# MCP Timeout (seconds)
-QODO_MCP_REQUEST_TIMEOUT_SECONDS=300
-
-# Logging Level
-LOGGING_LEVEL_AI_QODO_COMMAND_INTERNAL=INFO
-```
-
-### Docker Volume Mounts
-
-The Docker setup includes volume mounts for:
-- Agent data: `${HOME}/code/docker_mnt/compose-command-sdk/command-sdk:/app/data`
-- Customize the path in `docker/docker-compose.yml` as needed
+For containerized deployment with ActiveMQ, Prometheus, and Grafana, see the Docker Compose stack in docker/docker-compose.yml. The full end-to-end steps and environment variable guidance are covered in GETTING_STARTED.md.
 
 ---
 
 ## Agent Configurations
 
-This SDK supports agent workflows defined in YAML. The following describe example agent scenarios you can implement via your own `agent.yml`. **These are not bundled by default.**
-
-### Supplying agent.yml
-
-- **Default location**: `qodo.agent.configFile=classpath:agent.yml`
-- **Override via environment variable**:
-  ```bash
-  export QODO_AGENT_CONFIG_FILE=file:/absolute/path/to/agent.yml
-  ```
-- **For Docker**: Ensure the file is available to the container (mount a host path or bake into the image)
-
-> **Note**: If the agent command is not recognized, verify that `QODO_AGENT_CONFIG_FILE` points to your `agent.yml` and that command names match handler bean names (see Handler Pattern in Developer Guide).
+See GETTING_STARTED.md for:
+- Supplying agent.yml (classpath vs file path)
+- Mapping command names to handler bean names
+- Output schema and exit expression guidance
+- MCP server configuration within agent.yml
 
 ### Example Agent Scenarios
 
@@ -440,49 +295,7 @@ The application provides comprehensive health checks and Prometheus metrics for 
 
 ### Health Check Endpoints
 
-#### Main Health Endpoint
-```bash
-# Overall application health (includes all health indicators)
-curl http://localhost:8080/actuator/health
-```
-
-**Response Example:**
-```json
-{
-  "status": "UP",
-  "components": {
-    "diskSpace": {
-      "status": "UP",
-      "details": {
-        "total": 500000000000,
-        "free": 250000000000,
-        "threshold": 10485760,
-        "exists": true
-      }
-    },
-    "jms": {
-      "status": "UP",
-      "details": {
-        "provider": "ActiveMQ"
-      }
-    },
-    "mcpServersHealthIndicator": {
-      "status": "UP",
-      "details": {
-        "mcpServers": {
-          "github-server": "UP",
-          "filesystem-server": "UP",
-          "jira_agent-confluence-server": "UP",
-          "git-server": "UP"
-        }
-      }
-    },
-    "ping": {
-      "status": "UP"
-    }
-  }
-}
-```
+See GETTING_STARTED.md for quick verification endpoints and example curl commands.
 
 #### Info Endpoint
 ```bash
@@ -492,20 +305,7 @@ curl http://localhost:8080/actuator/info
 
 ### Prometheus Metrics
 
-The application exposes Prometheus-compatible metrics for monitoring and alerting.
-
-#### Metrics Endpoint
-```bash
-# All Prometheus metrics
-curl http://localhost:8080/actuator/prometheus
-
-# All Micrometer metrics (JSON format)
-curl http://localhost:8080/actuator/metrics
-
-# Specific metric details
-curl http://localhost:8080/actuator/metrics/qodo_mcp_active_servers
-curl http://localhost:8080/actuator/metrics/qodo_ws_active_connections
-```
+Prometheus-compatible metrics are exposed at `/actuator/prometheus`. See Docker stack provisioning in docker/monitoring/* for Prometheus and Grafana defaults. For local curl examples, see GETTING_STARTED.md.
 
 ### Custom MCP Server Metrics
 
@@ -553,46 +353,7 @@ rate(qodo_ws_active_connections[5m])
 
 ### MCP Server Health Indicator
 
-The custom `McpServersHealthIndicator` performs active health checks on all MCP servers:
-
-- Checks servers from `mcp.json` configuration
-- Validates agent-specific MCP servers from `agent.yml`
-- Tests server connectivity by calling `listTools()`
-- Reports individual server status in health endpoint
-
-**Health Check Details:**
-```bash
-curl http://localhost:8080/actuator/health | jq '.components.mcpServersHealthIndicator'
-```
-
-**Response:**
-```json
-{
-  "status": "UP",
-  "details": {
-    "mcpServers": {
-      "github-server": "UP",
-      "filesystem-server": "UP",
-      "jira_agent-confluence-server": "UP",
-      "git-server": "UP"
-    }
-  }
-}
-```
-
-If any server is down:
-```json
-{
-  "status": "DOWN",
-  "details": {
-    "mcpServers": {
-      "github-server": "UP",
-      "filesystem-server": "DOWN: Connection refused",
-      "git-server": "UP"
-    }
-  }
-}
-```
+The custom `McpServersHealthIndicator` performs active health checks on MCP servers and reports status via the actuator health endpoint. See GETTING_STARTED.md for practical curl usage and examples.
 
 ### Monitoring Best Practices
 
@@ -1234,128 +995,7 @@ messagePublisher.publishEvent(objectMapper.writeValueAsString(payload));
 
 ## Configuration
 
-### Application Properties
-
-Key configuration in `src/main/resources/application.yml`:
-
-```yaml
-qodo:
-  baseUrl: ${COMMAND_BASE_URL:https://api.command.qodo.ai}
-  blockedTools: ${QODO_BLOCKED_TOOLS:}
-  agent:
-    configFile: ${QODO_AGENT_CONFIG_FILE:classpath:agent.yml}
-  mcp:
-    request-timeout-seconds: ${QODO_MCP_REQUEST_TIMEOUT_SECONDS:90}
-  websocket:
-    token: ${WEBSOCKET_TOKEN}
-
-# Messaging
-messaging:
-  provider: ${MESSAGING_PROVIDER:activemq}
-  queue:
-    audit: ${MESSAGING_DEFAULT_TOPIC:audit}
-    event: ${MESSAGING_EVENT_TOPIC:event}
-    response: ${MESSAGING_RESPONSE_TOPIC:response}
-  activemq:
-    broker-url: ${MESSAGING_ACTIVEMQ_BROKER_URL:tcp://localhost:61616}
-    username: ${MESSAGING_ACTIVEMQ_USERNAME:qodo}
-    password: ${MESSAGING_ACTIVEMQ_PASSWORD:qodo}
-
-# Server
-server:
-  port: ${SERVER_PORT:8080}
-
-# Virtual Threads (Java 21+)
-spring:
-  threads:
-    virtual:
-      enabled: true
-```
-
-### Environment Variables
-
-```bash
-# Required
-export WEBSOCKET_TOKEN=your-token
-export MESSAGING_PROVIDER=activemq
-export MESSAGING_ACTIVEMQ_BROKER_URL=tcp://localhost:61616
-
-# Optional
-export SNYK_WEBHOOK_SECRET=your-snyk-secret
-export JIRA_WEBHOOK_SECRET=your-jira-secret
-export GITHUB_WEBHOOK_SECRET=your-github-secret
-
-# MCP Configuration
-export QODO_MCP_REQUEST_TIMEOUT_SECONDS=300  # Increase timeout for long-running tools
-```
-
-### MCP Client Timeout Configuration
-
-The MCP (Model Context Protocol) client timeout controls how long the application waits for MCP server tool responses before timing out. This is particularly important for long-running tools like `gradle_tester`, code analysis, or large file operations.
-
-**Default Timeout:** 90 seconds
-
-**Configuring the Timeout:**
-
-1. **Via Environment Variable (Recommended for Docker):**
-   ```bash
-   export QODO_MCP_REQUEST_TIMEOUT_SECONDS=300  # 5 minutes
-   ```
-
-2. **Via application.yml:**
-   ```yaml
-   qodo:
-     mcp:
-       request-timeout-seconds: 300
-   ```
-
-3. **Via Docker Compose:**
-   The `docker/docker-compose.yml` already includes this configuration with a default of 300 seconds:
-   ```yaml
-   environment:
-     QODO_MCP_REQUEST_TIMEOUT_SECONDS: ${QODO_MCP_REQUEST_TIMEOUT_SECONDS:-300}
-   ```
-
-**When to Increase the Timeout:**
-
-- **Build Tools:** Gradle, Maven, or npm operations that take longer than 90 seconds
-- **Code Analysis:** Large codebases requiring extensive scanning
-- **File Operations:** Processing large files or directories
-- **External API Calls:** Tools that make slow external API requests
-- **Database Operations:** Complex queries or migrations
-
-**Example Timeout Values:**
-
-- **Fast operations** (file read/write): 30-60 seconds
-- **Standard operations** (code analysis): 90-120 seconds  
-- **Build operations** (gradle, maven): 300-600 seconds (5-10 minutes)
-- **Heavy operations** (full codebase scan): 600-1800 seconds (10-30 minutes)
-
-**Monitoring Timeouts:**
-
-Check the logs for timeout errors:
-```bash
-docker-compose -f docker/docker-compose.yml logs qodo-command | grep TimeoutException
-```
-
-Example timeout error:
-```
-Failed to invoke tool gradle_tester on server scout-server: 
-java.util.concurrent.TimeoutException: Did not observe any item or terminal signal within 90000ms
-```
-
-**Restart After Configuration Change:**
-
-```bash
-# Stop the services
-docker-compose -f docker/docker-compose.yml down
-
-# Rebuild with new configuration
-docker-compose -f docker/docker-compose.yml build qodo-command
-
-# Start with new timeout
-docker-compose -f docker/docker-compose.yml up -d
-```
+See GETTING_STARTED.md for application properties, environment variables, and MCP timeout guidance. The defaults for messaging, ports, and MCP are set in internal-core/src/main/resources/application-internal.yml and can be overridden in app/src/main/resources/application.yml or via environment variables.
 
 ---
 
@@ -1400,28 +1040,10 @@ messagePublisher.publishResponse(jsonMessage);
 
 ## Testing
 
-### Running Tests
-
-```bash
-./gradlew test
-./gradlew integrationTest
-```
-
-### Testing Webhooks
-
-```bash
-# Test Snyk webhook
-curl -X POST http://localhost:8080/api/webhooks/snyk \
-  -H "Content-Type: application/json" \
-  -H "X-Snyk-Event: project.snapshot" \
-  -H "X-Snyk-Timestamp: 2024-01-01T00:00:00Z" \
-  -d @test-payload.json
-
-# Test Jira webhook
-curl -X POST http://localhost:8080/api/webhooks/jira/PROJ-123 \
-  -H "Content-Type: application/json" \
-  -d @jira-payload.json
-```
+- Unit and integration tests:
+  - `./gradlew test`
+  - `./gradlew integrationTest`
+- Webhook testing examples are consolidated in GETTING_STARTED.md.
 
 ---
 
@@ -1449,32 +1071,7 @@ curl -X POST http://localhost:8080/api/webhooks/jira/PROJ-123 \
 
 ## Troubleshooting
 
-### Handler Not Found
-- Verify handler bean name matches: `{agent_type}-handler`
-- Check `@Service` annotation includes correct name
-- Ensure handler implements `Handler` interface
-
-### Agent Command or Config Not Found
-- Verify `QODO_AGENT_CONFIG_FILE` is set and points to a readable file
-- If using classpath: ensure `agent.yml` is packaged in the running app
-- Confirm command names in `agent.yml` match handler bean names (`{command}-handler`)
-- Check logs for agent initialization errors
-
-### Messages Not Processing
-- Check ActiveMQ is running: `docker-compose -f docker/docker-compose.yml up activemq`
-- Verify queue configuration in `application.yml`
-- Check logs for transaction rollbacks
-
-### Webhook Signature Validation Failing
-- Verify webhook secret matches configuration
-- Check signature algorithm (SHA256 vs SHA1)
-- Ensure raw body is used for validation (not parsed JSON)
-
-### MCP Tool Timeouts
-- Increase `QODO_MCP_REQUEST_TIMEOUT_SECONDS` for long-running operations
-- Check MCP server logs for errors
-- Verify MCP server is running and accessible
-- Monitor tool execution times via Prometheus metrics
+Operational troubleshooting and environment guidance are centralized in GETTING_STARTED.md. See that guide for handler mapping issues, agent.yml configuration, messaging, webhook validation, and MCP timeout adjustments.
 
 ---
 
