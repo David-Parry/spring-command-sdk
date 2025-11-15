@@ -65,10 +65,11 @@ echo -e "${GREEN}✅ Orphaned containers removed${NC}"
 echo ""
 
 echo "========================================="
-echo "Step 3: Removing project images"
+echo "Step 3: Removing command-sdk image only"
 echo "========================================="
-docker-compose -f $COMPOSE_FILE down --rmi all --volumes --remove-orphans
-echo -e "${GREEN}✅ Project images and volumes removed${NC}"
+# Remove only the command-sdk image, preserve Grafana and Prometheus
+docker rmi -f command-sdk:${VERSION:-latest} 2>/dev/null || echo "command-sdk image not found (will be built fresh)"
+echo -e "${GREEN}✅ command-sdk image removed${NC}"
 echo ""
 
 echo "========================================="
@@ -79,8 +80,10 @@ echo -e "${GREEN}✅ Dangling images removed${NC}"
 echo ""
 
 echo "========================================="
-echo "Step 5: Removing build cache"
+echo "Step 5: Clearing build cache for command-sdk only"
 echo "========================================="
+# Remove build cache but preserve base images that Grafana/Prometheus might use
+echo "Note: Clearing all build cache but Grafana/Prometheus will use cached images"
 docker builder prune -af
 echo -e "${GREEN}✅ Build cache cleared${NC}"
 echo ""
@@ -113,10 +116,11 @@ docker volume ls | grep -E "command-sdk|prometheus|grafana" || echo "No project 
 echo ""
 
 echo "========================================="
-echo "Step 8: Rebuilding from scratch"
+echo "Step 8: Rebuilding command-sdk from scratch"
 echo "========================================="
-docker-compose -f $COMPOSE_FILE build --no-cache --pull
-echo -e "${GREEN}✅ Images rebuilt from scratch${NC}"
+# Build only command-sdk with --no-cache, allow Grafana/Prometheus to use cache
+docker-compose -f $COMPOSE_FILE build --no-cache --pull command-sdk
+echo -e "${GREEN}✅ command-sdk image rebuilt from scratch (no cache)${NC}"
 echo ""
 
 echo "========================================="

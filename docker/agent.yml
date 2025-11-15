@@ -42,7 +42,8 @@ commands:
               "env": {
                 "JIRA_EMAIL":"{ATLASSIAN_JIRA_USERNAME}",
                 "JIRA_API_TOKEN":"{ATLASSIAN_JIRA_API_TOKEN}",
-                "JIRA_SITE_URL":"{ATLASSIAN_JIRA_URL}"
+                "JIRA_SITE_URL":"{ATLASSIAN_JIRA_URL}",
+                "SNYK_API_TOKEN":"{SNYK_API_TOKEN}"
               }
             }
           }
@@ -85,7 +86,25 @@ commands:
       
       ### Phase 1: Issue Retrieval & Context Building
       1. Use jira_get_issue tool with issueKey: {/issueKey} to retrieve the full issue details
-      2. Extract the git repository URI from the issue fields and use git_clone_repository to clone the codebase
+      2. **Git Repository Handling**:
+         - Extract the git repository URI from the issue fields (check description, custom fields, or comments)
+         - If no valid git repository URI is found in the Jira issue:
+           a. Use the github_list_repositories tool to retrieve a list of all repositories you have access to
+           b. Create a comment starting with [AGENT-REQUEST] asking the user to select the correct repository:
+              ```
+              [AGENT-REQUEST]
+              {AGENT_COMMENT_TIME: 3 min } <- as an agent estimate the time it took you to review and need to write this.
+              
+              No git repository was found associated with this Jira issue. Please select the correct repository from the list below:
+              
+              {numbered list of repositories from github_list_repositories}
+              
+              Please reply with the repository name or URL you'd like to use for this issue.
+              ```
+           c. Use jira_add_comment to add this comment to the issue
+           d. Set output response: success=false, issueKey={/issueKey}, status="needs_clarification", reason="Missing git repository URI"
+           e. Exit the workflow and wait for user response
+         - Once a valid git repository URI is available (either from the issue or user response), use git_clone_repository to clone the codebase
       3. **MANDATORY**: Use get_project_tree to retrieve and analyze the complete project structure
          - This provides a comprehensive view of the project architecture, file organization, and technology stack
          - Review the entire project tree to understand existing patterns, conventions, and implementation approaches
@@ -244,13 +263,15 @@ commands:
               "env": {
                 "JIRA_EMAIL":"{ATLASSIAN_JIRA_USERNAME}",
                 "JIRA_API_TOKEN":"{ATLASSIAN_JIRA_API_TOKEN}",
-                "JIRA_SITE_URL":"{ATLASSIAN_JIRA_URL}"
+                "JIRA_SITE_URL":"{ATLASSIAN_JIRA_URL}",
+                "GITHUB_TOKEN":"{GITHUB_API_TOKEN}",
+                "SNYK_API_TOKEN":"{SNYK_API_TOKEN}"
               }
             }
           }
       }
 
-    tools: ["internal-server.jira_get_issue", "internal-server.git_clone_repository", "internal-server.terminal_execute_command","internal-server.get_project_tree", "internal-server.jira_update_issue", "internal-server.jira_transition_issue","internal-server.jira_add_comment", "internal-server.jira_get_statuses"]
+    tools: ["internal-server.snyk_test_command","internal-server.github_list_repositories","internal-server.jira_get_issue", "internal-server.git_clone_repository", "internal-server.terminal_execute_command","internal-server.get_project_tree", "internal-server.jira_update_issue", "internal-server.jira_transition_issue","internal-server.jira_add_comment", "internal-server.jira_get_statuses"]
     execution_strategy: "act"
 
     output_schema: |
@@ -633,7 +654,8 @@ commands:
                 "JIRA_EMAIL":"{ATLASSIAN_JIRA_USERNAME}",
                 "JIRA_API_TOKEN":"{ATLASSIAN_JIRA_API_TOKEN}",
                 "JIRA_SITE_URL":"{ATLASSIAN_JIRA_URL}",
-                "GITHUB_TOKEN":"{GITHUB_API_TOKEN}"
+                "GITHUB_TOKEN":"{GITHUB_API_TOKEN}",
+                "SNYK_MCP_ENABLED":"false"
               }
           }
         }

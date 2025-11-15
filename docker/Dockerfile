@@ -19,26 +19,32 @@ COPY internal-core ./internal-core
 # Build the application
 RUN gradle clean build -x test --no-daemon
 
-# Runtime stage
-FROM eclipse-temurin:21-jdk-alpine
+# Runtime stage - Using Ubuntu-based image with OpenJDK and Node.js for better compatibility
+FROM timbru31/java-node:21-jdk-20
 
 # Set working directory
 WORKDIR /app
 
-# Install Node.js, npm, Python, git, openssh and other dependencies
-RUN apk add --no-cache \
+# Install other dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
     bash \
     git \
     openssh-client \
     sudo \
     procps \
-    curl
+    curl \
+    ca-certificates \
+    gnupg \
+    maven && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # Reset working directory back to /app
 WORKDIR /app
 
-# Create a non-root user
-RUN addgroup -S spring && adduser -S -h /home/spring -s /bin/bash -G spring spring
+# Create a non-root user (Ubuntu syntax)
+RUN groupadd -r spring && useradd -r -g spring -d /home/spring -s /bin/bash -m spring
 
 # Create .ssh directory for spring user with proper permissions
 RUN mkdir -p /home/spring/.ssh && \
@@ -72,10 +78,19 @@ COPY docker/docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh && \
     chown spring:spring /app/docker-entrypoint.sh
 
+# Install Snyk CLI globally using npm (works on all architectures)
+# This is the recommended installation method and supports both x86_64 and ARM64
+RUN npm install -g snyk@latest && \
+    npm cache clean --force
 
-# Install Maven
-RUN apk add --no-cache maven
+# Verify installations
+RUN node --version && \
+    npm --version && \
+    snyk --version && \
+    mvn --version
 
+# Set PATH environment variable to ensure binaries are found
+ENV PATH="/usr/local/bin:/usr/bin:/bin:${PATH}"
 
 # Switch to non-root user
 USER spring
