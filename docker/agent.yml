@@ -42,7 +42,8 @@ commands:
               "env": {
                 "JIRA_EMAIL":"{ATLASSIAN_JIRA_USERNAME}",
                 "JIRA_API_TOKEN":"{ATLASSIAN_JIRA_API_TOKEN}",
-                "JIRA_SITE_URL":"{ATLASSIAN_JIRA_URL}"
+                "JIRA_SITE_URL":"{ATLASSIAN_JIRA_URL}",
+                "SNYK_API_TOKEN":"{SNYK_TOKEN}"
               }
             }
           }
@@ -86,6 +87,8 @@ commands:
       ### Phase 1: Issue Retrieval & Context Building
       1. Use jira_get_issue tool with issueKey: {/issueKey} to retrieve the full issue details
       2. Extract the git repository URI from the issue fields and use git_clone_repository to clone the codebase
+         - If the URI is not present use github_list_repositories to list all repositories you have access too
+         - If the URI is not present comment on issueKey: {/issueKey} using jira_add_comment with the list of repositories you have access too asking to select the proper one.
       3. **MANDATORY**: Use get_project_tree to retrieve and analyze the complete project structure
          - This provides a comprehensive view of the project architecture, file organization, and technology stack
          - Review the entire project tree to understand existing patterns, conventions, and implementation approaches
@@ -244,13 +247,15 @@ commands:
               "env": {
                 "JIRA_EMAIL":"{ATLASSIAN_JIRA_USERNAME}",
                 "JIRA_API_TOKEN":"{ATLASSIAN_JIRA_API_TOKEN}",
-                "JIRA_SITE_URL":"{ATLASSIAN_JIRA_URL}"
+                "JIRA_SITE_URL":"{ATLASSIAN_JIRA_URL}",
+                "GITHUB_TOKEN":"{GITHUB_API_TOKEN}",
+                "SNYK_API_TOKEN":"{SNYK_TOKEN}"
               }
             }
           }
       }
 
-    tools: ["internal-server.jira_get_issue", "internal-server.git_clone_repository", "internal-server.terminal_execute_command","internal-server.get_project_tree", "internal-server.jira_update_issue", "internal-server.jira_transition_issue","internal-server.jira_add_comment", "internal-server.jira_get_statuses"]
+    tools: ["internal-server.jira_assign_issue","internal-server.snyk_test_report","internal-server.github_list_repositories","internal-server.jira_get_issue", "internal-server.git_clone_repository", "internal-server.terminal_execute_command","internal-server.get_project_tree", "internal-server.jira_update_issue", "internal-server.jira_transition_issue","internal-server.jira_add_comment", "internal-server.jira_get_statuses"]
     execution_strategy: "act"
 
     output_schema: |
@@ -293,7 +298,7 @@ commands:
                  "type": "string"
               }
          },
-         "required": ["issueKey","summary", "questions", "success"]
+         "required": ["issueKey","summary", "questions", "success", "status","git_repo_uri","design", "reason"]
       }
 
     exit_expression: "success"
@@ -704,7 +709,7 @@ commands:
                   "type": "string"
               }
           },
-          "required": ["issueKey", "files", "success", "story_points", "estimated_hours"]
+          "required": ["issueKey", "files", "success", "pr_url", "story_points", "estimated_hours","actual_agent_time_minutes","complexity_level","lines_changed","reason"]
        }
 
     exit_expression: "success"

@@ -50,7 +50,8 @@ services:
       
       # MCP Atlassian Configuration
       MCP_ATLASSIAN_HOST: mcp-atlassian
-      
+
+      SNYK_TOKEN: ${SNYK_API_TOKEN}
       # Messaging Configuration - LOCAL QUEUE
       MESSAGING_PROVIDER: local
       MESSAGING_DEFAULT_TOPIC: ${MESSAGING_DEFAULT_TOPIC:-audit}

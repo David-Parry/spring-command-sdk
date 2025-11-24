@@ -10,7 +10,7 @@ qodo:
   agent:
     configFile: ${QODO_AGENT_CONFIG_FILE:classpath:agent.yml}
   mcp:
-    request-timeout-seconds: ${QODO_MCP_REQUEST_TIMEOUT_SECONDS:300}
+    request-timeout-seconds: ${QODO_MCP_REQUEST_TIMEOUT_SECONDS:900}
   websocket:
     token: ${WEBSOCKET_TOKEN}
     # Health check configuration
@@ -120,5 +120,6 @@ logging:
             StdioClientTransport: ERROR
     ai.qodo.command: INFO
     ai.qodo.command.internal: ${LOGGING_LEVEL_AI_QODO_COMMAND_INTERNAL:INFO}
+    ai.qodo.command.internal.service.WebSocketService: DEBUG
   pattern:
     console: "%d{yy-MM-dd HH:mm:ss} - [%logger{36}] - %msg%n"

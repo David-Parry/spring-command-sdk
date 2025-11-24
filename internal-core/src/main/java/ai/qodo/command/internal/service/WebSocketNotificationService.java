@@ -113,6 +113,9 @@ public class WebSocketNotificationService implements MessageService, BeanNameAwa
         } catch (ExecutionException e) {
             Throwable cause = e.getCause();
 
+            // Log accumulated responses before throwing
+            logAccumulatedResponses("ExecutionException");
+
             // Check if it's a CommandException from reconnection failure
             if (cause instanceof CommandException) {
                 logger.error("WebSocket connection failed with CommandException for event: {} - {}",
@@ -128,6 +131,9 @@ public class WebSocketNotificationService implements MessageService, BeanNameAwa
             throw new CommandException("WebSocket operation failed: " + cause.getMessage(), cause);
 
         } catch (TimeoutException e) {
+            // Log accumulated responses before throwing
+            logAccumulatedResponses("TimeoutException");
+            
             logger.error("WebSocket operation timed out after {}s for event: {}", qodoProperties
                     .getWebsocket()
                     .getConnectionTimeoutSeconds(), commandSession.eventKey());
@@ -135,6 +141,9 @@ public class WebSocketNotificationService implements MessageService, BeanNameAwa
             throw new CommandException("WebSocket operation timed out", e);
 
         } catch (InterruptedException e) {
+            // Log accumulated responses before throwing
+            logAccumulatedResponses("InterruptedException");
+            
             Thread.currentThread().interrupt();
             logger.error("WebSocket operation was interrupted for event: {}", commandSession.eventKey());
             completionLatch.countDown();
@@ -465,9 +474,39 @@ public class WebSocketNotificationService implements MessageService, BeanNameAwa
 
 
     protected void handleWebSocketError(CommandSession session, String error) {
+        // Check if this is an expected 1006 closure (after ENDNODE)
+        // The WebSocketService marks expectedClose when ENDNODE is received
+        boolean isExpected1006 = error != null && error.contains("Connection closed abnormally: 1006");
+        
+        if (isExpected1006) {
+            // Treat as normal closure - just log at INFO level
+            logger.info("WebSocket connection closed normally for session {} (server-initiated 1006 after ENDNODE)", 
+                       session.sessionId());
+            
+            // Complete the latch to unblock the waiting thread and allow normal completion
+            // This ensures the process() method completes successfully without reconnection
+            completionLatch.countDown();
+            logger.debug("Completion latch counted down for expected 1006 closure for session: {}", 
+                        session.sessionId());
+            
+            // Don't log accumulated responses or complete ready signal exceptionally
+            // This is expected behavior after ENDNODE - just complete normally
+            return;
+        }
+        
+        // For all other errors, log as error
         logger.error("WebSocket error for session {}: {} [checkpoint_id={}, attempt={}, reconnecting={}, " +
                              "ready_pending={}]", session.sessionId(), error, session.checkPointId(),
                      session.attemptCount(), isReconnecting, readySignalPending);
+
+        // Log accumulated responses when error occurs
+        if (error != null && error.contains("1006")) {
+            logger.warn("Abnormal connection closure (1006) detected - logging accumulated responses");
+            logAccumulatedResponses("WebSocket-Error-1006");
+        } else {
+            // Log for other errors too, but with different context
+            logAccumulatedResponses("WebSocket-Error");
+        }
 
         // Check if we're in a reconnection scenario
         if (isReconnecting) {
@@ -490,6 +529,88 @@ public class WebSocketNotificationService implements MessageService, BeanNameAwa
         // which will cause the CompletableFuture chain to fail appropriately
         logger.warn("WebSocket error handler completed for session: {} - retry logic will be handled by " +
                             "WebSocketService", session.sessionId());
+    }
+
+    /**
+     * Logs all accumulated task responses for diagnostic purposes.
+     * Safely handles null values and separates structured/unstructured content.
+     * 
+     * @param context Additional context about when this logging occurs
+     */
+    private void logAccumulatedResponses(String context) {
+        if (allTaskResponses.isEmpty()) {
+            logger.info("[{}] No task responses accumulated for session: {}", 
+                        context, commandSession != null ? commandSession.sessionId() : "unknown");
+            return;
+        }
+        
+        StringBuilder structuredJson = new StringBuilder();
+        StringBuilder unstructuredJson = new StringBuilder();
+        int structuredCount = 0;
+        int unstructuredCount = 0;
+        
+        for (TaskResponse r : allTaskResponses) {
+            try {
+                // Null-safe type check
+                if (r == null) {
+                    logger.warn("[{}] Null TaskResponse encountered in accumulated responses", context);
+                    continue;
+                }
+                
+                // Check if type exists and matches structured output
+                boolean isStructured = r.type() != null && 
+                                      r.type().equalsIgnoreCase(TYPE_STRUCTURED_OUTPUT);
+                
+                // Safely extract tool args
+                if (r.data() != null && r.data().toolArgs() != null) {
+                    for (Map.Entry<String, Object> entry : r.data().toolArgs().entrySet()) {
+                        String key = entry.getKey();
+                        Object value = entry.getValue();
+                        
+                        if (value != null) {
+                            String valueStr = value.toString();
+                            if (isStructured) {
+                                structuredJson.append("[").append(key).append("]: ")
+                                             .append(valueStr).append("\n");
+                                structuredCount++;
+                            } else {
+                                unstructuredJson.append("[").append(key).append("]: ")
+                                               .append(valueStr).append("\n");
+                                unstructuredCount++;
+                            }
+                        }
+                    }
+                }
+                
+                // Log additional metadata if available
+                if (r.data() != null) {
+                    logger.debug("[{}] Response metadata - Tool: {}, ServerName: {}, Identifier: {}", 
+                                context,
+                                r.data().tool(),
+                                r.data().serverName(), 
+                                r.data().identifier());
+                }
+                
+            } catch (Exception e) {
+                logger.error("[{}] Error processing TaskResponse for logging: {}", context, e.getMessage());
+            }
+        }
+        
+        // Log the accumulated content
+        logger.info("[{}] Accumulated responses for session {}: Total={}, Structured={}, Unstructured={}", 
+                    context, 
+                    commandSession != null ? commandSession.sessionId() : "unknown",
+                    allTaskResponses.size(),
+                    structuredCount,
+                    unstructuredCount);
+        
+        if (structuredJson.length() > 0) {
+            logger.info("[{}] Structured output:\n{}", context, structuredJson.toString());
+        }
+        
+        if (unstructuredJson.length() > 0) {
+            logger.info("[{}] Unstructured output:\n{}", context, unstructuredJson.toString());
+        }
     }
 
     /**
