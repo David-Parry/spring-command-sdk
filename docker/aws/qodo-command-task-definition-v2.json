@@ -9,7 +9,7 @@
   "tags": [
     {
       "key": "version",
-      "value": "1.0.36"
+      "value": "1.0.38"
     }
   ],
   "runtimePlatform": {
@@ -95,6 +95,10 @@
         }
       ],
       "secrets": [
+        {
+          "name": "SNYK_TOKEN",
+          "valueFrom": "arn:aws:secretsmanager:us-east-2:577638396504:secret:qodo-command/snyk-token-hiN2Cz"
+        },
         {
           "name": "ATLASSIAN_JIRA_API_TOKEN",
           "valueFrom": "arn:aws:secretsmanager:us-east-2:577638396504:secret:qodo-command/jira-api-token-wuCCx7"

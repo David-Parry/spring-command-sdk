@@ -196,7 +196,7 @@
 
     {
       "type": "stat",
-      "title": "Qodo MCP Active Servers",
+      "title": "Loaded MCP Servers",
       "gridPos": { "x": 12, "y": 24, "w": 6, "h": 4 },
       "targets": [
         { "expr": "qodo_mcp_active_servers{application=\"$application\"}", "refId": "A", "datasource": "Prometheus" }

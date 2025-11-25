@@ -98,7 +98,7 @@ public class MessageEventRouter implements MessageRouter {
             JsonNode projectStructureNode = messageNode.get(StringConstants.PROJECT_STRUCTURE.getValue());
             if (projectStructureNode != null && !projectStructureNode.isNull()) {
                 projectStructure = projectStructureNode.asText();
-                logger.debug("Extracted project structure from message for session: {}", webSocketIds.sessionId());
+                logger.trace("Extracted project structure from message for session: {}", webSocketIds.sessionId());
             }
 
             CommandSessionBuilder commandSessionBuilder = new CommandSessionBuilder()
@@ -113,7 +113,7 @@ public class MessageEventRouter implements MessageRouter {
             if (command != null) {
                 // Record successful lookup
                 agentConfigMetrics.recordSuccessfulLookup(messageType);
-                
+
                 McpConfig substitutedMcpConfig = EnvSubstitution.substitute(command.mcpConfig());
                 Map<String, McpSyncClient> clients = mcpClientInitializer.loadSyncClients(substitutedMcpConfig,
                                                                                           getSessionAbsolutePath(webSocketIds.sessionId()));
@@ -121,21 +121,21 @@ public class MessageEventRouter implements MessageRouter {
             } else {
                 // Record missing command metric
                 agentConfigMetrics.recordMissingCommand(messageType);
-                
+
                 // Log warning for missing agent command
-                logger.warn("No agent command configured for message type '{}'. Session: {}, EventKey: {}", 
-                           messageType, webSocketIds.sessionId(), eventKey);
-                
+                logger.warn("No agent command configured for message type '{}'. Session: {}, EventKey: {}",
+                            messageType, webSocketIds.sessionId(), eventKey);
+
                 // Only allow EndFlowCleanup to proceed without agent command
                 if (!messageType.equalsIgnoreCase(EndFlowCleanup.TYPE)) {
                     logger.error("Message type '{}' requires an agent command configuration but none was found. " +
-                                "Please add this message type to the agent configuration file.", messageType);
-                    throw new MissingAgentCommandException(
-                        String.format("No agent command configured for message type '%s'. " +
-                                     "Available commands: %s", 
-                                     messageType, 
-                                     agentConfigManager.getAgentConfig().commands().keySet())
-                    );
+                                         "Please add this message type to the agent configuration file.", messageType);
+                    throw new MissingAgentCommandException(String.format("No agent command configured for message " +
+                                                                                 "type '%s'. " + "Available commands:" +
+                                                                                 " %s", messageType, agentConfigManager
+                            .getAgentConfig()
+                            .commands()
+                            .keySet()));
                 }
             }
             commandSession = commandSessionBuilder.build();
@@ -144,15 +144,21 @@ public class MessageEventRouter implements MessageRouter {
             } else {
                 serviceName = "websocketNotificationService";
             }
+            if (logger.isDebugEnabled()) {
+                logger.debug("Service name: {} is being invoked with AgentCommand {}", serviceName, commandSession
+                        .agentCommand()
+                        .name());
+            } else if (logger.isTraceEnabled()) {
+                logger.debug("Service name: {} is being invoked with CommandSession {}", serviceName, commandSession);
+            }
             MessageService service = applicationContext.getBean(serviceName, MessageService.class);
             service.init(commandSession);
             service.process();
-            logger.info("Successfully processed routed messageType '{}' to service with service key '{}'", messageType, service.serviceKey());
+            logger.info("Successfully processed routed messageType '{}' to service with service key '{}'",
+                        messageType, service.serviceKey());
         } catch (BeansException be) {
             logger.error("Service not present if '{}' == '{}' this means the LLM did not return with complete " +
-                                 "messages or it gave up. You can implement a service to handle this case for the " +
-                                 "service {} and even use the LLM to continue or recover", serviceName,
-                         INCOMPLETE_NODE_SERVICE, INCOMPLETE_NODE_SERVICE);
+                                 "messages or it gave up. You can implement a service to handle this case for the " + "service {} and even use the LLM to continue or recover", serviceName, INCOMPLETE_NODE_SERVICE, INCOMPLETE_NODE_SERVICE);
         } catch (Exception e) {
             logger.error("Failed to process message: {}", message, e);
             throw new CommandException("Failed to process message: " + message, e);

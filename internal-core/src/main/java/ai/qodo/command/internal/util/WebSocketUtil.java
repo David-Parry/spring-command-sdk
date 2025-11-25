@@ -8,18 +8,22 @@
 
 package ai.qodo.command.internal.util;
 
+import ai.qodo.command.internal.api.TaskResponse;
 import ai.qodo.command.internal.pojo.CommandSession;
 import ai.qodo.command.internal.pojo.CommandSessionBuilder;
+import ai.qodo.command.internal.pojo.ServerRawResponses;
 import ai.qodo.command.internal.pojo.WebSocketIds;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.UUID;
+
+import static ai.qodo.command.internal.service.WebSocketNotificationService.TYPE_STRUCTURED_OUTPUT;
 
 public class WebSocketUtil {
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd");
-    private static final DateTimeFormatter TIMESTAMP_FORMAT = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
 
     /**
      * Generates all parameters for a NEW session (no checkpoint).
@@ -58,11 +62,6 @@ public class WebSocketUtil {
      * provides good traceability and uniqueness.
      */
     private static String generateRequestId() {
-//        LocalDateTime utcNow = LocalDateTime.now(ZoneOffset.UTC);
-//        String timestamp = utcNow.format(TIMESTAMP_FORMAT);
-//        String shortUuid = UUID.randomUUID().toString().substring(0, 8);
-//
-//        return "req_" + timestamp + "_" + shortUuid;
         return UUID.randomUUID().toString();
     }
 
@@ -79,27 +78,27 @@ public class WebSocketUtil {
         return UUID.randomUUID().toString();
     }
 
-    /**
-     * Ensures a session ID is partition-compatible.
-     */
-    private static String ensurePartitionCompatible(String sessionId) {
-        // Check if already in correct format (YYYYMMDD_UUID)
-        if (sessionId != null && sessionId.matches("^\\d{8}_[a-f0-9-]{36}$")) {
-            return sessionId;
+
+    public static ServerRawResponses parseTaskResponses(List<TaskResponse> response) {
+        StringBuilder structuredJson = new StringBuilder();
+        StringBuilder unstructuredJson = new StringBuilder();
+        
+        if (response != null) {
+            for (TaskResponse r : response) {
+                StringBuilder target = TYPE_STRUCTURED_OUTPUT.equalsIgnoreCase(r.type()) 
+                    ? structuredJson 
+                    : unstructuredJson;
+                appendToolArgs(r, target);
+            }
         }
-
-        // Convert to partition-compatible format
-        LocalDateTime utcNow = LocalDateTime.now(ZoneOffset.UTC);
-        String datePrefix = utcNow.format(DATE_FORMAT);
-
-        // If it's a UUID, prefix it
-        if (sessionId != null && sessionId.matches("^[a-f0-9-]{36}$")) {
-            return datePrefix + "_" + sessionId;
-        }
-
-        // Otherwise, generate a new one
-        return generateSessionId();
+        
+        return new ServerRawResponses(structuredJson.toString(), unstructuredJson.toString());
     }
-
+    
+    private static void appendToolArgs(TaskResponse response, StringBuilder target) {
+        if (response.data() != null && response.data().toolArgs() != null) {
+            response.data().toolArgs().values().forEach(target::append);
+        }
+    }
 
 }
