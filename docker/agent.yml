@@ -252,7 +252,7 @@ commands:
                 "JIRA_API_TOKEN":"{ATLASSIAN_JIRA_API_TOKEN}",
                 "JIRA_SITE_URL":"{ATLASSIAN_JIRA_URL}",
                 "GITHUB_TOKEN":"{GITHUB_API_TOKEN}",
-                "SNYK_API_TOKEN":"{SNYK_TOKEN}"
+                "SNYK_TOKEN":"{SNYK_TOKEN}"
               }
             }
           }
@@ -826,7 +826,8 @@ commands:
                 "JIRA_EMAIL":"{ATLASSIAN_JIRA_USERNAME}",
                 "JIRA_API_TOKEN":"{ATLASSIAN_JIRA_API_TOKEN}",
                 "JIRA_SITE_URL":"{ATLASSIAN_JIRA_URL}",
-                "GITHUB_TOKEN":"{GITHUB_API_TOKEN}"
+                "GITHUB_TOKEN":"{GITHUB_API_TOKEN}",
+                "SNYK_TOKEN":"{SNYK_TOKEN}"
               }
           }
         }

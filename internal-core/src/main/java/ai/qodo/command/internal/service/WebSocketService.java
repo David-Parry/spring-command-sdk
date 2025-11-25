@@ -407,14 +407,14 @@ public class WebSocketService {
             msg = message + "\n";
         }
 
-        logger.debug("[{}] Sending WebSocket message ({} bytes) for session {}", instanceId, message.length(),
-                     sessionId);
+        logger.trace("[{}] Sending WebSocket session {} message {}", instanceId, sessionId, message);
         return webSocket.sendText(msg, true).thenRun(() -> {
             // Increment sent message counter
             if (msgSentTotal != null) {
                 msgSentTotal.increment();
             }
-            logger.debug("[{}] Message sent successfully for session: {}", instanceId, sessionId);
+            logger.debug("[{}] Message sent successfully for session: {} ({} bytes)", instanceId, sessionId,
+                         message.length());
         }).exceptionally(throwable -> {
             logger.error("[{}] Failed to send WebSocket message for session: {}", instanceId, sessionId, throwable);
             scheduleReconnect("send failure");
@@ -517,8 +517,8 @@ public class WebSocketService {
                 logger.info("[{}] WebSocket disconnected successfully for session: {} with status: {}", instanceId,
                             sessionId, statusCode);
             } catch (TimeoutException e) {
-                logger.warn("[{}] Timeout waiting for WebSocket close handshake for session: {} - " + "connection may" +
-                                    " close with status 1006", instanceId, sessionId);
+                logger.warn("[{}] Timeout waiting for WebSocket close handshake for session: {} - " + "connection " +
+                                    "may" + " close with status 1006", instanceId, sessionId);
             } catch (InterruptedException e) {
                 logger.warn("[{}] Interrupted while waiting for WebSocket close for session: {}", instanceId,
                             sessionId);
@@ -534,8 +534,8 @@ public class WebSocketService {
         if (!closeHandshakeCompleted && globalMetrics != null) {
             boolean removed = globalMetrics.removeConnection(sessionId);
             if (removed) {
-                logger.info("[{}] Proactively removed connection from global metrics after failed close for session: " +
-                                    "{}", instanceId, sessionId);
+                logger.info("[{}] Proactively removed connection from global metrics after failed close for session: "
+                                    + "{}", instanceId, sessionId);
             }
         }
 
@@ -577,8 +577,8 @@ public class WebSocketService {
             Duration timeSinceCreation = connection != null ?
                     Duration.between(connection.createdAt(), Instant.now()) : Duration.ZERO;
 
-            logger.error("[{}] PREVENTING PREMATURE DESTROY - lifecycle state is {} " + "(connection age: {}ms). This" +
-                                 " indicates a bean lifecycle issue.", instanceId, lifecycleState,
+            logger.error("[{}] PREVENTING PREMATURE DESTROY - lifecycle state is {} " + "(connection age: {}ms). " +
+                                 "This" + " indicates a bean lifecycle issue.", instanceId, lifecycleState,
                          timeSinceCreation.toMillis());
 
             // Don't disconnect - let the connection continue
@@ -687,9 +687,9 @@ public class WebSocketService {
 
             // Complete the connection future exceptionally to propagate exception to JMS thread
             if (connectionFuture != null && !connectionFuture.isDone()) {
-                CommandException exception = new CommandException(String.format("WebSocket connection failed after %d" +
-                                                                                        " reconnect attempts - %s",
-                                                                                maxAttempts, cause));
+                CommandException exception = new CommandException(String.format("WebSocket connection failed after " +
+                                                                                        "%d" + " reconnect attempts -" +
+                                                                                        " %s", maxAttempts, cause));
                 connectionFuture.completeExceptionally(exception);
                 logger.info("[{}] Completed connection future exceptionally to trigger JMS rollback", instanceId);
             } else {
@@ -910,11 +910,8 @@ public class WebSocketService {
                 if (msgReceivedTotal != null) {
                     msgReceivedTotal.increment();
                 }
-                if (logger.isDebugEnabled()) {
-                    logger.debug("InstanceID[{}] Received WebSocket message ({} bytes) for session {}", instanceId,
-                                 message.length(), sessionId);
-                } else if (logger.isTraceEnabled()) {
-                    logger.debug("InstanceID[{}] sessionId {} , Received WebSocket message '{}'", instanceId,
+                if (logger.isTraceEnabled()) {
+                    logger.trace("InstanceID[{}] sessionId {} , Received WebSocket message '{}'", instanceId,
                                  sessionId, message);
                 }
                 try {
@@ -972,8 +969,8 @@ public class WebSocketService {
             boolean wasExpected = expectedClose.getAndSet(false);
             boolean wasIntentional = intentionalClose.get();
 
-            logger.info("[{}] WebSocket onClose callback for session {}: status={}, reason='{}', " + "wasExpected={}," +
-                                " wasIntentional={}", instanceId, sessionId, statusCode, reason, wasExpected,
+            logger.info("[{}] WebSocket onClose callback for session {}: status={}, reason='{}', " + "wasExpected={},"
+                                + " wasIntentional={}", instanceId, sessionId, statusCode, reason, wasExpected,
                         wasIntentional);
 
             // Early return for expected closures - no reconnection needed

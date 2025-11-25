@@ -22,7 +22,7 @@ import java.util.regex.Pattern;
  * Features:
  * - Supports JSON Pointer notation (e.g., {/path/to/value})
  * - Supports dot notation (e.g., {path.to.value})
- * - Handles missing values gracefully with error messages
+ * - Preserves original placeholders when values are not found (allows multi-pass processing)
  * - Works with any JSON structure
  * 
  * Example usage:
@@ -32,6 +32,12 @@ import java.util.regex.Pattern;
  * String json = "{\"name\": \"John\", \"score\": 95}";
  * String result = processor.processTemplate(template, json);
  * // Result: "Hello John, your score is 95!"
+ * 
+ * // Missing values preserve the placeholder:
+ * String template2 = "Hello {/name}, email: {/email}";
+ * String json2 = "{\"name\": \"John\"}";
+ * String result2 = processor.processTemplate(template2, json2);
+ * // Result: "Hello John, email: {/email}"
  * </pre>
  */
 @Component
@@ -82,7 +88,7 @@ public class TemplateProcessor {
      * Extracts a value from JSON using a key path
      * @param jsonNode The JSON node to search in
      * @param keyPath The path to the value (e.g., "/eventType" or "project.name")
-     * @return The string value or a placeholder if not found
+     * @return The string value or the original placeholder if not found
      */
     private String extractValueFromJson(JsonNode jsonNode, String keyPath) {
         try {
@@ -98,14 +104,15 @@ public class TemplateProcessor {
                     if (targetNode.has(part)) {
                         targetNode = targetNode.get(part);
                     } else {
-                        return "{" + keyPath + " - NOT FOUND}";
+                        // Return original placeholder unchanged
+                        return "{" + keyPath + "}";
                     }
                 }
             }
             
-            // Return the value as text, or indicate if not found
+            // Return the value as text, or return original placeholder if not found
             if (targetNode.isMissingNode() || targetNode.isNull()) {
-                return "{" + keyPath + " - NOT FOUND}";
+                return "{" + keyPath + "}";
             } else if (targetNode.isTextual()) {
                 return targetNode.asText();
             } else {
@@ -113,7 +120,8 @@ public class TemplateProcessor {
             }
             
         } catch (Exception e) {
-            return "{" + keyPath + " - ERROR: " + e.getMessage() + "}";
+            // Return original placeholder on error
+            return "{" + keyPath + "}";
         }
     }
 

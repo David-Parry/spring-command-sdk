@@ -18,7 +18,9 @@ import ai.qodo.command.internal.metrics.McpMetrics;
 import ai.qodo.command.internal.metrics.WebSocketMetrics;
 import ai.qodo.command.internal.pojo.CommandSession;
 import ai.qodo.command.internal.pojo.CommandSessionBuilder;
+import ai.qodo.command.internal.pojo.ServerRawResponses;
 import ai.qodo.command.internal.transformer.TemplateProcessor;
+import ai.qodo.command.internal.util.WebSocketUtil;
 import io.micrometer.core.instrument.Timer;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.spec.McpSchema;
@@ -133,7 +135,7 @@ public class WebSocketNotificationService implements MessageService, BeanNameAwa
         } catch (TimeoutException e) {
             // Log accumulated responses before throwing
             logAccumulatedResponses("TimeoutException");
-            
+
             logger.error("WebSocket operation timed out after {}s for event: {}", qodoProperties
                     .getWebsocket()
                     .getConnectionTimeoutSeconds(), commandSession.eventKey());
@@ -143,7 +145,7 @@ public class WebSocketNotificationService implements MessageService, BeanNameAwa
         } catch (InterruptedException e) {
             // Log accumulated responses before throwing
             logAccumulatedResponses("InterruptedException");
-            
+
             Thread.currentThread().interrupt();
             logger.error("WebSocket operation was interrupted for event: {}", commandSession.eventKey());
             completionLatch.countDown();
@@ -297,11 +299,9 @@ public class WebSocketNotificationService implements MessageService, BeanNameAwa
 
         // Validate that agentCommand is present
         if (session.agentCommand() == null) {
-            String error = String.format(
-                "No agent command configured for message type '%s' in session '%s'. " +
-                "Please verify that the message type is defined in the agent configuration file.",
-                session.messageType(), session.sessionId()
-            );
+            String error = String.format("No agent command configured for message type '%s' in session '%s'. " +
+                                                 "Please verify that the message type is defined in the agent " +
+                                                 "configuration file.", session.messageType(), session.sessionId());
             logger.error(error);
             return CompletableFuture.failedFuture(new CommandException(error));
         }
@@ -416,11 +416,14 @@ public class WebSocketNotificationService implements MessageService, BeanNameAwa
 
                 logger.debug("Cleaned up session data for session: {}", session.sessionId());
 
-                // Don't call disconnectSession - server will close the connection
-                // The expectedClose flag will treat the server's 1006 close as normal
-
-                // Signal completion to unblock the waiting thread
                 completionLatch.countDown();
+
+                if (logger.isTraceEnabled()) {
+                    ServerRawResponses rawResponses = WebSocketUtil.parseTaskResponses(allTaskResponses);
+                    logger.trace("Structured response: {}", rawResponses.structuredJson());
+                    logger.trace("Unstructured conversation from server: {}", rawResponses.unstructuredJson());
+                }
+
                 break;
             case "THINKING":
                 logger.debug("Thinking for session {}: {}", session.sessionId(), taskResponse);
@@ -477,41 +480,42 @@ public class WebSocketNotificationService implements MessageService, BeanNameAwa
         // Check if this is an expected 1006 closure (after ENDNODE)
         // The WebSocketService marks expectedClose when ENDNODE is received
         boolean isExpected1006 = error != null && error.contains("Connection closed abnormally: 1006");
-        
+
         if (isExpected1006) {
             // Treat as normal closure - just log at INFO level
-            logger.info("WebSocket connection closed normally for session {} (server-initiated 1006 after ENDNODE)", 
-                       session.sessionId());
-            
+            logger.info("WebSocket connection closed normally for session {} (server-initiated 1006 after ENDNODE)",
+                        session.sessionId());
+
             // Complete the latch to unblock the waiting thread and allow normal completion
             // This ensures the process() method completes successfully without reconnection
             completionLatch.countDown();
-            logger.debug("Completion latch counted down for expected 1006 closure for session: {}", 
-                        session.sessionId());
-            
+            logger.debug("Completion latch counted down for expected 1006 closure for session: {}",
+                         session.sessionId());
+
             // Don't log accumulated responses or complete ready signal exceptionally
             // This is expected behavior after ENDNODE - just complete normally
             return;
         }
-        
+
         // For all other errors, log as error
         logger.error("WebSocket error for session {}: {} [checkpoint_id={}, attempt={}, reconnecting={}, " +
                              "ready_pending={}]", session.sessionId(), error, session.checkPointId(),
                      session.attemptCount(), isReconnecting, readySignalPending);
 
-        // Log accumulated responses when error occurs
-        if (error != null && error.contains("1006")) {
-            logger.warn("Abnormal connection closure (1006) detected - logging accumulated responses");
-            logAccumulatedResponses("WebSocket-Error-1006");
-        } else {
-            // Log for other errors too, but with different context
-            logAccumulatedResponses("WebSocket-Error");
+        if (logger.isDebugEnabled()) {
+            // Log accumulated responses when error occurs
+            if (error != null && error.contains("1006")) {
+                logger.warn("Abnormal connection closure (1006) detected - logging accumulated responses");
+                logAccumulatedResponses("WebSocket-Error-1006");
+            } else {
+                // Log for other errors too, but with different context
+                logAccumulatedResponses("WebSocket-Error");
+            }
         }
 
         // Check if we're in a reconnection scenario
         if (isReconnecting) {
-            logger.debug("WebSocket error occurred during reconnection for session: {} - " + "skipping ready signal " +
-                                 "completion to allow reconnection to proceed", session.sessionId());
+            logger.debug("WebSocket error occurred during reconnection for session: {} - " + "skipping ready signal " + "completion to allow reconnection to proceed", session.sessionId());
             return;
         }
 
@@ -534,83 +538,17 @@ public class WebSocketNotificationService implements MessageService, BeanNameAwa
     /**
      * Logs all accumulated task responses for diagnostic purposes.
      * Safely handles null values and separates structured/unstructured content.
-     * 
+     *
      * @param context Additional context about when this logging occurs
      */
     private void logAccumulatedResponses(String context) {
-        if (allTaskResponses.isEmpty()) {
-            logger.info("[{}] No task responses accumulated for session: {}", 
-                        context, commandSession != null ? commandSession.sessionId() : "unknown");
-            return;
-        }
-        
-        StringBuilder structuredJson = new StringBuilder();
-        StringBuilder unstructuredJson = new StringBuilder();
-        int structuredCount = 0;
-        int unstructuredCount = 0;
-        
-        for (TaskResponse r : allTaskResponses) {
-            try {
-                // Null-safe type check
-                if (r == null) {
-                    logger.warn("[{}] Null TaskResponse encountered in accumulated responses", context);
-                    continue;
-                }
-                
-                // Check if type exists and matches structured output
-                boolean isStructured = r.type() != null && 
-                                      r.type().equalsIgnoreCase(TYPE_STRUCTURED_OUTPUT);
-                
-                // Safely extract tool args
-                if (r.data() != null && r.data().toolArgs() != null) {
-                    for (Map.Entry<String, Object> entry : r.data().toolArgs().entrySet()) {
-                        String key = entry.getKey();
-                        Object value = entry.getValue();
-                        
-                        if (value != null) {
-                            String valueStr = value.toString();
-                            if (isStructured) {
-                                structuredJson.append("[").append(key).append("]: ")
-                                             .append(valueStr).append("\n");
-                                structuredCount++;
-                            } else {
-                                unstructuredJson.append("[").append(key).append("]: ")
-                                               .append(valueStr).append("\n");
-                                unstructuredCount++;
-                            }
-                        }
-                    }
-                }
-                
-                // Log additional metadata if available
-                if (r.data() != null) {
-                    logger.debug("[{}] Response metadata - Tool: {}, ServerName: {}, Identifier: {}", 
-                                context,
-                                r.data().tool(),
-                                r.data().serverName(), 
-                                r.data().identifier());
-                }
-                
-            } catch (Exception e) {
-                logger.error("[{}] Error processing TaskResponse for logging: {}", context, e.getMessage());
-            }
-        }
-        
-        // Log the accumulated content
-        logger.info("[{}] Accumulated responses for session {}: Total={}, Structured={}, Unstructured={}", 
-                    context, 
-                    commandSession != null ? commandSession.sessionId() : "unknown",
-                    allTaskResponses.size(),
-                    structuredCount,
-                    unstructuredCount);
-        
-        if (structuredJson.length() > 0) {
-            logger.info("[{}] Structured output:\n{}", context, structuredJson.toString());
-        }
-        
-        if (unstructuredJson.length() > 0) {
-            logger.info("[{}] Unstructured output:\n{}", context, unstructuredJson.toString());
-        }
+        ServerRawResponses responses = WebSocketUtil.parseTaskResponses(allTaskResponses);
+        logger.warn("""
+                            Following Error Type Context {}\s
+                             Structured response from server: {}\s
+                             Unstructured \
+                            conversation from server: {}""", context, responses.structuredJson(),
+                    responses.unstructuredJson());
     }
 
     /**
@@ -666,6 +604,47 @@ public class WebSocketNotificationService implements MessageService, BeanNameAwa
         // Reset the ready signal before sending the tool failed response to wait for the next READY from server
         resetReadySignal("tool failed response sent");
 
+        webSocketService.sendObject(WireMsgRouteKey.IDERetrievalAnswer, sessionId, response);
+    }
+
+    /**
+     * Sends a timeout-specific error response that doesn't cause disconnection.
+     * Provides helpful guidance to the user about the timeout.
+     *
+     * @param sessionId The session ID to send the response to
+     * @param toolData  The tool data that timed out
+     */
+    private void sendToolTimeoutResponse(String sessionId, ToolData toolData) {
+        // Create a user-friendly timeout message
+        String timeoutMessage =
+                String.format("The command '%s' took too long and timed out (exceeded %d seconds). " + "Please try a " +
+                                      "shorter command or break it into smaller steps. " + "For example, instead of " +
+                                      "processing large datasets, try processing smaller chunks.", toolData.tool(),
+                              qodoProperties
+                .getMcp()
+                .getRequestTimeoutSeconds());
+
+        // Build the error response with isError=true and helpful content
+        ToolResponseBuilder.ToolAnswerBuilder builder = ToolResponseBuilder
+                .answer()
+                .isError(true)
+                .addTextContent(timeoutMessage);
+
+        ToolResponse response = new ToolResponseBuilder()
+                .sessionId(sessionId)
+                .tool(toolData.tool())
+                .toolId(toolData.identifier())
+                .answer(builder.build())
+                .build();
+
+        // Log the timeout for monitoring
+        logger.info("Sending timeout error response for tool {} in session {} - suggesting shorter commands",
+                    toolData.tool(), sessionId);
+
+        // Reset the ready signal before sending the response
+        resetReadySignal("tool timeout response sent");
+
+        // Send the response without closing the WebSocket
         webSocketService.sendObject(WireMsgRouteKey.IDERetrievalAnswer, sessionId, response);
     }
 
@@ -789,7 +768,40 @@ public class WebSocketNotificationService implements MessageService, BeanNameAwa
                     .arguments(taskResponse.data().toolArgs())
                     .build();
 
-            McpSchema.CallToolResult result = freshClient.callTool(callToolRequest);
+            McpSchema.CallToolResult result = null;
+            boolean isTimeout = false;
+
+            try {
+                // Wrap the blocking call with explicit timeout handling
+                result = freshClient.callTool(callToolRequest);
+            } catch (Exception e) {
+                // Check if it's a timeout-related exception
+                Throwable cause = e.getCause();
+                if (cause instanceof TimeoutException || (e.getMessage() != null && e
+                        .getMessage()
+                        .toLowerCase()
+                        .contains("timeout")) || (cause != null && cause.getMessage() != null && cause
+                        .getMessage()
+                        .toLowerCase()
+                        .contains("timeout"))) {
+
+                    logger.warn("Tool {} on server {} timed out after configured duration for session {}: {}",
+                                toolName, serverName, sessionId, e.getMessage());
+
+                    isTimeout = true;
+
+                    // Record timeout metric
+                    sample.stop(mcpMetrics.getToolExecutionTimer(serverName, toolName));
+                    mcpMetrics.recordToolFailure(serverName, toolName);
+
+                    // Send graceful timeout error response
+                    sendToolTimeoutResponse(sessionId, toolData);
+                    return;
+                } else {
+                    // Re-throw non-timeout exceptions to maintain existing error handling
+                    throw e;
+                }
+            }
 
             // Record success and execution time (serverName and toolName are validated as non-null)
             sample.stop(mcpMetrics.getToolExecutionTimer(serverName, toolName));

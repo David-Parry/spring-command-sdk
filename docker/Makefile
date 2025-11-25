@@ -35,10 +35,6 @@ fast: ## Fast build for development (recommended, ~30-60 sec)
 	@echo "$(BLUE)Fast building application...$(NC)"
 	@./build-app-fast.sh
 
-benchmark: ## Run build performance benchmark
-	@echo "$(BLUE)Running build benchmark...$(NC)"
-	@./benchmark-build.sh
-
 clean: ## Clean Docker images and build cache
 	@echo "$(YELLOW)Cleaning Docker images and cache...$(NC)"
 	@docker rmi qodo/command-sdk:latest qodo/command-sdk:fast-dev 2>/dev/null || true
@@ -138,20 +134,6 @@ dev-rebuild: fast restart ## Quick development cycle (rebuild + restart)
 # CI/CD workflow
 ci-build: base app ## CI/CD build workflow
 	@echo "$(GREEN)✓ CI/CD build complete!$(NC)"
-
-# Push to registry
-push: ## Push images to registry (requires DOCKER_REGISTRY env var)
-	@if [ -z "$$DOCKER_REGISTRY" ]; then \
-		echo "$(YELLOW)Warning: DOCKER_REGISTRY not set$(NC)"; \
-		echo "Set it with: export DOCKER_REGISTRY=your-registry.com"; \
-		exit 1; \
-	fi
-	@echo "$(BLUE)Pushing to registry: $$DOCKER_REGISTRY$(NC)"
-	@docker tag qodo/command-sdk-base:latest $$DOCKER_REGISTRY/qodo/command-sdk-base:latest
-	@docker tag qodo/command-sdk:latest $$DOCKER_REGISTRY/qodo/command-sdk:latest
-	@docker push $$DOCKER_REGISTRY/qodo/command-sdk-base:latest
-	@docker push $$DOCKER_REGISTRY/qodo/command-sdk:latest
-	@echo "$(GREEN)✓ Images pushed successfully$(NC)"
 
 # Health check
 health: ## Check application health

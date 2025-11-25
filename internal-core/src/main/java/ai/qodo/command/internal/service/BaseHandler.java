@@ -12,7 +12,9 @@ import ai.qodo.command.internal.api.Handler;
 import ai.qodo.command.internal.api.StringConstants;
 import ai.qodo.command.internal.api.TaskResponse;
 import ai.qodo.command.internal.pojo.CommandSession;
+import ai.qodo.command.internal.pojo.ServerRawResponses;
 import ai.qodo.command.internal.util.DirectoryPrinter;
+import ai.qodo.command.internal.util.WebSocketUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,6 +36,7 @@ public abstract class BaseHandler implements Handler {
     private final MessagePublisher messagePublisher;
     private final ObjectMapper objectMapper;
     private final int MAX_MSG_SIZE_BYTES = 104857600;
+
     public BaseHandler(MessagePublisher messagePublisher, ObjectMapper objectMapper) {
         this.messagePublisher = messagePublisher;
         this.objectMapper = objectMapper;
@@ -58,20 +61,9 @@ public abstract class BaseHandler implements Handler {
         map.put(StringConstants.CHECKPOINT_ID.getValue(), checkPointId);
         map.put(StringConstants.MESSAGE_TYP.getValue(), commandSession.messageType());
 
-        StringBuilder structuredJson = new StringBuilder();
-        StringBuilder unstructuredJson = new StringBuilder();
-        for (TaskResponse r : allTaskResponses) {
-            if (r.type().equalsIgnoreCase(TYPE_STRUCTURED_OUTPUT)) {
-                for (Object ok : r.data().toolArgs().values()) {
-                    structuredJson.append(ok);
-                }
-            } else {
-                for (Object ok : r.data().toolArgs().values()) {
-                    unstructuredJson.append(ok);
-                }
-            }
-        }
-        String msg = structuredJson.toString();
+        ServerRawResponses serverRawResponses = WebSocketUtil.parseTaskResponses(allTaskResponses);
+
+        String msg = serverRawResponses.structuredJson();
         // now remove the directory next agent will have its own session and new directory
         removeSessionDirectory(sessionId);
         try {
@@ -84,22 +76,37 @@ public abstract class BaseHandler implements Handler {
                 map.put(StringConstants.TYPE.getValue(), type());
             } else {
                 map.put(StringConstants.TYPE.getValue(), EndFlowCleanup.TYPE);
+                if (logger.isDebugEnabled()) {
+                    logger.debug("Response from server session {} reporting success as {} if you want to see the LLM " +
+                                         "conversation and response turn trace on for BaseHandler class", sessionId,
+                                 map.get(StringConstants.SUCCESS.getValue()));
+                } else if (logger.isTraceEnabled()) {
+                    logger.trace("""
+                                         Response from server session {} did not report success was {}\s
+                                          structured \
+                                         response: {}\s
+                                          unstructured conversation: {}""", sessionId,
+                                 map.get(StringConstants.SUCCESS.getValue()), serverRawResponses.structuredJson(),
+                                 serverRawResponses.unstructuredJson());
+                }
             }
         } catch (Exception e) {
             logger.error("Failed to parse structuredJson placing back on Queue to retry to Map from string value {}",
                          msg, e);
             logger.debug("Conversation from LLM before that did not give us a {} variable. {}",
-                         TYPE_STRUCTURED_OUTPUT, unstructuredJson);
-            // there was a failure to read the contract of the output schema that the LLM was suppose to return no way to determine if it was success so go to a incomplete service if developer wants too
-            map.put(StringConstants.TYPE.getValue(),MessageService.INCOMPLETE_NODE_SERVICE);
-            map.put(StringConstants.LLM_CONVERSATION.getValue(), unstructuredJson.toString());
+                         TYPE_STRUCTURED_OUTPUT, serverRawResponses.unstructuredJson());
+            // there was a failure to read the contract of the output schema that the LLM was suppose to return no
+            // way to determine if it was success so go to a incomplete service if developer wants too
+            map.put(StringConstants.TYPE.getValue(), MessageService.INCOMPLETE_NODE_SERVICE);
+            map.put(StringConstants.LLM_CONVERSATION.getValue(), serverRawResponses.unstructuredJson());
         }
-            this.messagePublisher.publishResponse(serializeMapForQueue(handle(map)));
+        this.messagePublisher.publishResponse(serializeMapForQueue(handle(map)));
 
     }
 
     /**
      * no matter what we will get a next step and a service to call if developer wants always
+     *
      * @param map
      * @return - at least a string representation of a map simplest with failures will be one value
      */
@@ -112,7 +119,7 @@ public abstract class BaseHandler implements Handler {
                 msg = objectMapper.writeValueAsString(map);
             }
         } catch (Exception er) {
-            logger.error("Something went very wrong with the map to message for QUEUE {}",map, er);
+            logger.error("Something went very wrong with the map to message for QUEUE {}", map, er);
             msg = "{\"" + StringConstants.TYPE.getValue() + "\":\"" + MessageService.INCOMPLETE_NODE_SERVICE + "\"}";
         }
         return msg;

@@ -65,7 +65,7 @@ services:
 
       GITHUB_API_TOKEN: ${GITHUB_API_TOKEN}
 
-      SNYK_TOKEN: ${SNYK_API_TOKEN}
+      SNYK_TOKEN: ${SNYK_TOKEN}
 
       # Snyk Webhook Configuration
       SNYK_WEBHOOK_SECRET: ${SNYK_WEBHOOK_SECRET:-lower-test-token-replace}
