@@ -57,7 +57,7 @@ public class JiraWebhookController {
     private static final String UPDATE_AUTHOR = "updateAuthor";
 
     // Message payload keys
-    private static final String MSG_JIRA = "jira_agent";
+    public static final String MSG_JIRA = "jira_agent";
     private static final String ISSUE_KEY_FIELD = "issueKey";
     private static final String TRIGGERED_BY = "triggeredBy";
     private static final String EVENT_KEY = "EventKey";

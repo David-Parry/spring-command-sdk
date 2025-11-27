@@ -7,7 +7,6 @@
  */
 
 package ai.qodo.command.app.handlers;
-import ai.qodo.command.internal.api.Handler;
 
 import ai.qodo.command.internal.service.BaseHandler;
 import ai.qodo.command.internal.service.MessagePublisher;
@@ -19,17 +18,17 @@ import org.springframework.stereotype.Service;
 
 import java.util.Map;
 
-import static ai.qodo.command.app.controllers.JiraWebhookController.MSG_JIRA;
+import static ai.qodo.command.app.controllers.CloudWatchLogWebhookController.MSG_AWS_CLOUD;
 import static ai.qodo.command.internal.api.Handler.HANDLER_SUFFIX;
 
-@Service(MSG_JIRA + HANDLER_SUFFIX)
+@Service(MSG_AWS_CLOUD + HANDLER_SUFFIX)
 @Scope("prototype")
-public class JiraAgentHandler extends BaseHandler {
+public class CloudWatchAgentHandler extends BaseHandler {
 
     public static final String JIRA_BUG_ACTIONABLE = "coding_agent";
-    private static final Logger logger = LoggerFactory.getLogger(JiraAgentHandler.class);
+    private static final Logger logger = LoggerFactory.getLogger(CloudWatchAgentHandler.class);
 
-    public JiraAgentHandler(MessagePublisher messagePublisher, ObjectMapper objectMapper) {
+    public CloudWatchAgentHandler(MessagePublisher messagePublisher, ObjectMapper objectMapper) {
         super(messagePublisher, objectMapper);
     }
 

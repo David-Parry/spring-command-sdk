@@ -25,7 +25,12 @@ FROM timbru31/java-node:21-jdk-20
 # Set working directory
 WORKDIR /app
 
-# Install other dependencies
+# Install other dependenciesHost github.com
+    HostName github.com
+    User git
+    IdentityFile /home/spring/.ssh/aws_ecdsa
+    IdentitiesOnly yes
+    StrictHostKeyChecking accept-new
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     bash \

@@ -130,9 +130,7 @@ public class MessageEventRouter implements MessageRouter {
                 if (!messageType.equalsIgnoreCase(EndFlowCleanup.TYPE)) {
                     logger.error("Message type '{}' requires an agent command configuration but none was found. " +
                                          "Please add this message type to the agent configuration file.", messageType);
-                    throw new MissingAgentCommandException(String.format("No agent command configured for message " +
-                                                                                 "type '%s'. " + "Available commands:" +
-                                                                                 " %s", messageType, agentConfigManager
+                    throw new MissingAgentCommandException(String.format("No agent command configured for message " + "type '%s'. " + "Available commands:" + " %s", messageType, agentConfigManager
                             .getAgentConfig()
                             .commands()
                             .keySet()));
@@ -144,6 +142,7 @@ public class MessageEventRouter implements MessageRouter {
             } else {
                 serviceName = "websocketNotificationService";
             }
+            logger.info("Routed to '{}'", serviceName);
             if (logger.isDebugEnabled()) {
                 logger.debug("Service name: {} is being invoked with AgentCommand {}", serviceName, commandSession
                         .agentCommand()

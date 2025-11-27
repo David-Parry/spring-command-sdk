@@ -317,6 +317,9 @@ public class WebSocketNotificationService implements MessageService, BeanNameAwa
             String instructionTemplate = session.agentCommand().instructions();
             String instructions = templateProcessor.processTemplate(instructionTemplate, session.payload());
             logger.debug("Processed instructions for event: {}", session.eventKey());
+            if(logger.isTraceEnabled()) {
+                logger.trace("Instructions:\n{}\n", instructions);
+            }
             // Build agent request
             AgentRequest agentRequest = buildAgentRequestForService(session.sessionId(), instructions,
                                                                     session.agentCommand());

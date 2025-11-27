@@ -67,8 +67,9 @@ public abstract class BaseHandler implements Handler {
         // now remove the directory next agent will have its own session and new directory
         removeSessionDirectory(sessionId);
         try {
-            logger.debug("Message to publish marking with either JIRA_BUG_ACTIONABLE or TYPE_STRUCTURED_OUTPUT: {}",
-                         msg);
+            logger.debug("Message to publish marking with either JIRA_BUG_ACTIONABLE or TYPE_STRUCTURED_OUTPUT length" +
+                                 " {}", msg.length());
+            logger.trace("message contents:{}", msg);
             map.putAll(objectMapper.readValue(msg, Map.class));
             // ask the handler to give the type also has the way to alter the Map for success in the handle too or
             // add to it before getting put on to the Queue
@@ -77,9 +78,9 @@ public abstract class BaseHandler implements Handler {
             } else {
                 map.put(StringConstants.TYPE.getValue(), EndFlowCleanup.TYPE);
                 if (logger.isDebugEnabled()) {
-                    logger.debug("Response from server session {} reporting success as {} if you want to see the LLM " +
-                                         "conversation and response turn trace on for BaseHandler class", sessionId,
-                                 map.get(StringConstants.SUCCESS.getValue()));
+                    logger.debug("Response from server session {} reporting success as {} if you want to see the LLM "
+                                         + "conversation and response turn trace on for BaseHandler class", sessionId
+                            , map.get(StringConstants.SUCCESS.getValue()));
                 } else if (logger.isTraceEnabled()) {
                     logger.trace("""
                                          Response from server session {} did not report success was {}\s

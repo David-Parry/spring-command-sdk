@@ -122,5 +122,7 @@ logging:
     ai.qodo.command.internal: ${LOGGING_LEVEL_AI_QODO_COMMAND_INTERNAL:INFO}
     ai.qodo.command.internal.service.WebSocketService: DEBUG
     ai.qodo.command.internal.service.BaseHandler: TRACE
+    ai.qodo.command.internal.transformer.TemplateProcessor: TRACE
+
   pattern:
     console: "%d{yy-MM-dd HH:mm:ss} - [%logger{36}] - %msg%n"

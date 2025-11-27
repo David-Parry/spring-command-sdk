@@ -16,12 +16,6 @@ build:
   internal-core:
     version: @internal-core.version@
 
-# Snyk webhook configuration
-snyk:
-  webhook:
-    secret: ${SNYK_WEBHOOK_SECRET:lower-test-token-replace}
-    validate-signature: ${SNYK_WEBHOOK_VALIDATION_ENABLED:false}
-    max-timestamp-age-seconds: -1
 
 # Jira webhook configuration
 jira:
