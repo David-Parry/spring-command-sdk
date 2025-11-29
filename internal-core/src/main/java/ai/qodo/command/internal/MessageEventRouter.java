@@ -38,7 +38,7 @@ import java.nio.file.Paths;
 import java.util.Map;
 import java.util.UUID;
 
-import static ai.qodo.command.internal.service.MessageService.INCOMPLETE_NODE_SERVICE;
+import static ai.qodo.command.internal.service.MessageService.INCOMPLETE_NODE;
 
 /**
  * Service responsible for routing messages to appropriate services based on the message type.
@@ -69,7 +69,7 @@ public class MessageEventRouter implements MessageRouter {
     public void processMessage(String message) {
         CommandSession commandSession = null;
         // should always be able to have a service name but if one can not be created then go to the incomplete
-        String serviceName = INCOMPLETE_NODE_SERVICE;
+        String serviceName = INCOMPLETE_NODE;
         try {
             logger.debug("Processing message: ||\n {} ||\n", message);
 
@@ -157,7 +157,7 @@ public class MessageEventRouter implements MessageRouter {
                         messageType, service.serviceKey());
         } catch (BeansException be) {
             logger.error("Service not present if '{}' == '{}' this means the LLM did not return with complete " +
-                                 "messages or it gave up. You can implement a service to handle this case for the " + "service {} and even use the LLM to continue or recover", serviceName, INCOMPLETE_NODE_SERVICE, INCOMPLETE_NODE_SERVICE);
+                                 "messages or it gave up. You can implement a service to handle this case for the service {} and even use the LLM to continue or recover", serviceName, INCOMPLETE_NODE, INCOMPLETE_NODE);
         } catch (Exception e) {
             logger.error("Failed to process message: {}", message, e);
             throw new CommandException("Failed to process message: " + message, e);

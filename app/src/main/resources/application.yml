@@ -40,3 +40,6 @@ jira:
 #
 # qodo:
 #   blockedTools: scout-server:dependencies_list,restricted_command
+logging:
+  level:
+    ai.qodo.command.app.handlers.IncompleteAgentResponseHandler: TRACE

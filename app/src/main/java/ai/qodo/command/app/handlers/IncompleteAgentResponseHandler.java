@@ -8,6 +8,7 @@
 
 package ai.qodo.command.app.handlers;
 
+import ai.qodo.command.internal.api.Handler;
 import ai.qodo.command.internal.service.BaseHandler;
 import ai.qodo.command.internal.service.EndFlowCleanup;
 import ai.qodo.command.internal.service.MessagePublisher;
@@ -20,7 +21,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.Map;
 
-@Service(MessageService.INCOMPLETE_NODE_SERVICE)
+@Service(MessageService.INCOMPLETE_NODE + Handler.HANDLER_SUFFIX)
 @Scope("prototype")
 public class IncompleteAgentResponseHandler extends BaseHandler {
 
@@ -38,6 +39,13 @@ public class IncompleteAgentResponseHandler extends BaseHandler {
     @Override
     public Map<String, Object> handle(Map<String, Object> map) {
         logger.info("nothing to do but pass through {}", map.size());
+        if(logger.isTraceEnabled()) {
+            try {
+                logger.trace("Complete map contents: {}", objectMapper.writeValueAsString(map));
+            } catch (Exception e) {
+                logger.trace("Complete map contents (fallback): {}", map);
+            }
+        }
         return map;
     }
 

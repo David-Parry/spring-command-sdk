@@ -34,7 +34,7 @@ import static ai.qodo.command.internal.service.WebSocketNotificationService.TYPE
 public abstract class BaseHandler implements Handler {
     private static final Logger logger = LoggerFactory.getLogger(BaseHandler.class);
     private final MessagePublisher messagePublisher;
-    private final ObjectMapper objectMapper;
+    protected final ObjectMapper objectMapper;
     private final int MAX_MSG_SIZE_BYTES = 104857600;
 
     public BaseHandler(MessagePublisher messagePublisher, ObjectMapper objectMapper) {
@@ -98,7 +98,7 @@ public abstract class BaseHandler implements Handler {
                          TYPE_STRUCTURED_OUTPUT, serverRawResponses.unstructuredJson());
             // there was a failure to read the contract of the output schema that the LLM was suppose to return no
             // way to determine if it was success so go to a incomplete service if developer wants too
-            map.put(StringConstants.TYPE.getValue(), MessageService.INCOMPLETE_NODE_SERVICE);
+            map.put(StringConstants.TYPE.getValue(), MessageService.INCOMPLETE_NODE);
             map.put(StringConstants.LLM_CONVERSATION.getValue(), serverRawResponses.unstructuredJson());
         }
         this.messagePublisher.publishResponse(serializeMapForQueue(handle(map)));
@@ -121,7 +121,7 @@ public abstract class BaseHandler implements Handler {
             }
         } catch (Exception er) {
             logger.error("Something went very wrong with the map to message for QUEUE {}", map, er);
-            msg = "{\"" + StringConstants.TYPE.getValue() + "\":\"" + MessageService.INCOMPLETE_NODE_SERVICE + "\"}";
+            msg = "{\"" + StringConstants.TYPE.getValue() + "\":\"" + MessageService.INCOMPLETE_NODE + "\"}";
         }
         return msg;
     }

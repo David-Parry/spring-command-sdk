@@ -39,11 +39,6 @@ public class ActiveMQMessagePublisher implements MessagePublisher {
     private String responseQueue;
 
     @Override
-    public void publishEvent(String message) {
-        publish(eventQueue, message);
-    }
-
-    @Override
     public void publishResponse(String message) {
         publish(responseQueue, message);
     }
@@ -51,12 +46,7 @@ public class ActiveMQMessagePublisher implements MessagePublisher {
     public ActiveMQMessagePublisher(JmsTemplate jmsTemplate) {
         this.jmsTemplate = jmsTemplate;
     }
-    
-    @Override
-    public void publish(String message) {
-        publish(auditQueue, message);
-    }
-    
+
     @Override
     public void publish(String queue, String message) {
         try {

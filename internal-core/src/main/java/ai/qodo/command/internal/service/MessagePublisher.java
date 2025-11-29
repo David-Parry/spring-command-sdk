@@ -8,26 +8,15 @@
 
 package ai.qodo.command.internal.service;
 
+import ai.qodo.command.internal.api.StringConstants;
+
 /**
  * Interface for publishing messages to a topic.
  * This abstraction allows for different messaging implementations
  * to be configured through Spring Boot configuration.
  */
 public interface MessagePublisher {
-    String MSG_TYPE = "type";
-    /**
-     * Publishes a message to the configured topic.
-     * 
-     * @param message The message to publish
-     */
-    void publish(String message);
-
-    /**
-     * Publishes a message to the event topic.
-     *
-     * @param message The message to publish
-     */
-    void publishEvent(String message);
+    String MSG_TYPE = StringConstants.TYPE.getValue();
 
     /**
      * Publishes a message to the response topic.

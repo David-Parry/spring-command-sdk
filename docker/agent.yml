@@ -29,7 +29,7 @@ commands:
       - success: boolean
       - reason: string
     
-      *** Your Output response must conform to the configured output schema output_jira_agent ***
+      *** Your Output response must conform to the configured output schema output_incomplete ***
 
     model: "claude-4.1-opus"
 

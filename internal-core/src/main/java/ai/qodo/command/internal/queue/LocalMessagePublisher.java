@@ -37,17 +37,7 @@ public class LocalMessagePublisher implements MessagePublisher {
         this.messagingProperties = messagingProperties;
         logger.info("LocalMessagePublisher initialized");
     }
-    
-    @Override
-    public void publish(String message) {
-        publish(messagingProperties.getQueue().getAudit(), message);
-    }
-    
-    @Override
-    public void publishEvent(String message) {
-        publish(messagingProperties.getQueue().getEvent(), message);
-    }
-    
+
     @Override
     public void publishResponse(String message) {
         publish(messagingProperties.getQueue().getResponse(), message);
