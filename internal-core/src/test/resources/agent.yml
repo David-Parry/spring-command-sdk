@@ -1,0 +1,347 @@
+version: "1.0"
+system_prompt: "You are a Distinguished Software Engineer performing software development tasks."
+commands:
+  snyk_agent:
+    description: "Analyze code diffs, then generate a comprehensive test suite covering changed behaviors."
+
+    instructions: |
+      Your current task is to provide comprehensive, actionable remediation guidance for the following newly detected vulnerability.
+      Focus on concrete fixes, upgrade paths, temporary mitigations, and risk communication.
+
+      Context:
+      - Event Type: {/X-Snyk-Event}
+      - Timestamp: {/X-Snyk-Timestamp}
+      - Transport ID: {/X-Snyk-Transport-ID}
+
+      Organization:
+      - Name: {/org/name} (ID: {/org/id}, Slug: {/org/slug})
+      - URL: {/org/url}
+
+      Group:
+      - Name: {/group/name} (ID: {/group/id})
+
+      Project:
+      - Name: {/project/name} (ID: {/project/id})
+      - URL: {/project/url}
+      - Origin: {/project/origin}
+      - Type: {/project/type}
+      - Read Only: {/project/readOnly}
+      - Test Frequency: {/project/testFrequency}
+      - Total Dependencies: {/project/totalDependencies}
+      - Issue Counts by Severity: {/project/issueCountsBySeverity}
+
+      NEW VULNERABILITY:
+      ----------------------------------------
+      Title: {/issue/issueData/title}
+      Issue ID: {/issue/id}
+      Severity: {/issue/issueData/severity}
+      Type: {/issue/type}
+      Package: {/issue/packageName}
+      Version: {/issue/version}
+      Language: {/issue/language}
+      Package Manager: {/issue/packageManager}
+      URL: {/issue/url}
+      CVSS Score: {/issue/issueData/cvssScore}
+      CVSS Vector: {/issue/issueData/CVSSv3}
+      Introduced Date: {/issue/introducedDate}
+      Disclosure Time: {/issue/disclosureTime}
+      Publication Time: {/issue/publicationTime}
+      Upgradable: {/issue/isUpgradable}
+      Patchable: {/issue/isPatchable}
+      Pinnable: {/issue/isPinnable}
+      Identifiers: {/issue/issueData/identifiers}
+      Credits: {/issue/issueData/credit}
+      Description:
+      {/issue/issueData/description}
+
+      Provide recommendations for:
+      - Immediate risk assessment (likelihood, impact, exploit maturity), specifically calling out critical/high severities.
+      - Remediation (exact versions to upgrade to, or alternative packages).
+      - Temporary mitigations if upgrade not possible (configuration flags, feature kills, WAF rules, backports).
+      - Validation plan (tests to add, monitors/alerts).
+      - Follow-ups (SLA alignment, dependency hygiene, lockfile updates).
+
+      *** Your Output response must conform to the configured output schema output_snyk_agent ***
+
+    model: "claude-4.5-sonnet"
+
+    mcpServers: |
+      {
+        "mcpServers": {
+         "internal-server": {
+              "command": "java",
+              "args": ["-jar", "/app/mcp-internal-1.0.3.jar"],
+              "env": {
+                "JIRA_EMAIL":"{ATLASSIAN_JIRA_USERNAME}",
+                "JIRA_API_TOKEN":"{ATLASSIAN_JIRA_API_TOKEN}",
+                "JIRA_SITE_URL":"{ATLASSIAN_JIRA_URL}"
+              }
+            }
+        }
+      }
+
+    execution_strategy: "act"
+
+    output_schema: |
+      {
+         "properties": {
+             "actions": {
+                 "description": "Array of actionable instructions to address the vulnerability report",
+                 "type": "array",
+                 "items": {
+                     "type": "string",
+                     "description": "A single actionable instruction"
+                 }
+             },
+             "success": {
+                 "description": "Boolean indicating if the agent was able to complete the analysis and provide actions",
+                 "type": "boolean"
+             },
+             "reason": {
+                 "description": "Optional field explaining why success is false, only present when success is false",
+                 "type": "string"
+             }
+         },
+         "required": ["actions", "success"]
+      }
+
+    exit_expression: "success"
+
+  jira_agent:
+    description: "Read the Jira Bug ticket, Analyze it and ensure it is enough to move forward with."
+
+    instructions: |
+      First, use the getJiraIssue tool to retrieve the latest Jira issue details using the provided issueKey: {/issueKey}. This will give you the full context of the bug ticket, including its description, status, assignee, and any existing comments.
+
+      Next, review all prior comments on the issue in chronological order. For each comment, determine if it was left by you (the agent). If it was, tag it as [AGENT-REQUEST] in your internal review notes to track agent contributions separately.
+
+      After retrieving the issue and reviewing the comments, carefully analyze the available information to support continuous updates:
+      1. Assess the issue description, reproduction steps, error messages, attached logs or screenshots.
+      2. Consider all comments, especially any prior analysis, questions, or updates from users or other agents.
+      3. Identify any previous [AGENT-REQUEST] comments you made. For each such request, check if it has been addressed in subsequent comments or updates to the issue description since that request was posted.
+      4. If a previous request has been addressed (e.g., new information provided in comments or description updated accordingly), create a new comment acknowledging what has been added.
+         a) Make sure to add to the comment with a green checkmark if sufficiently answered, and that no other questions are is still missing. 
+         b) Sign this acknowledgment comment with [AGENT-ACKNOWLEDGMENT] at the first line.
+      5. After processing all previous requests, re-evaluate the entire issue with the latest information.
+      6. Determine if there is now sufficient information to:
+        a) Create a Root Cause Analysis (RCA) document explaining the underlying cause.
+        b) Hand off to another agent or team for further investigation, such as analyzing logs, source code, runtime configurations, or interactions with other services.
+        c) Develop a plan to address the issue, which could include code fixes, configuration changes, infrastructure updates, or other resolutions.
+
+      ** If the information is sufficient, proceed to summarize the issue and outline next steps in your output. Make sure the success property is set to true in the json structured output. Make sure to set the status field of the issue using jira_update_issue to 'In Progress' **
+      ** You must always create a comment either with the Jira Issue Ready to be worked on with big green checkmark or a comment from Step 4.**
+      ** If any comment has a message stating Ready for Development simple disregard any further action and you are complete**
+      
+      If there is still not enough information after considering updates:
+      - Brainstorm specific, targeted questions that would provide the missing details needed to proceed. Focus on unresolved aspects from previous requests or new gaps identified.
+      - Use the editJiraIssue tool to add these questions as a new comment to the issueKey {/issueKey}. Format them clearly, e.g., as a bulleted list prefixed with "Questions for clarification:".
+      - **You must ensure to sign the comment at the first line with this text: [AGENT-REQUEST]**
+      - In your output, include these questions in the 'questions' field.
+      - Make sure your output schema response success field is marked to false.
+
+      Ensure your analysis is thorough but concise. Focus on actionable insights. This process supports continuous iteration: each invocation checks for updates and either advances the issue or requests more information.
+
+      **IMPORTANT: In your output response, you MUST always include the 'issueKey' field with the value {/issueKey}. This is the Jira issue key that you used throughout this analysis and must be returned in the response.**
+
+      *** Your Output response must conform to the configured output schema output_jira_agent ***
+
+    model: "claude-4.5-sonnet"
+
+    mcpServers: |
+      {
+        "mcpServers": {
+           "internal-server": {
+              "command": "java",
+              "args": ["-jar", "/app/mcp-internal-1.0.3.jar"],
+              "env": {
+                "JIRA_EMAIL":"{ATLASSIAN_JIRA_USERNAME}",
+                "JIRA_API_TOKEN":"{ATLASSIAN_JIRA_API_TOKEN}",
+                "JIRA_SITE_URL":"{ATLASSIAN_JIRA_URL}"
+              }
+            }
+          }
+      }
+
+    tools: [ "internal-server.jira_get_issue" ]
+    execution_strategy: "act"
+
+    output_schema: |
+      {
+         "properties": {
+             "issueKey": {
+                 "description": "The Jira Issue Key that you have used to update, comment and work on the issue.",
+                 "type": "string"
+              },
+             "success": {
+                 "description": "Boolean indicating if the agent was able to complete the analysis and provide actions",
+                 "type": "boolean"
+             },
+             "summary": {
+                 "description": "Summary of the Jira ticket that you have looked up.",
+                 "type": "string"
+             },
+             "questions": {
+                 "description": "Array of questions that will help make the jira issue able to create an RCA or at least next steps needed after all of the questions are answered.",
+                 "type": "array",
+                 "items": {
+                     "type": "string",
+                     "description": "A single question"
+                 }
+             },
+             "reason": {
+                 "description": "Optional field explaining why success is false, only present when success is false",
+                 "type": "string"
+             }
+         },
+         "required": ["summary", "questions", "success"]
+      }
+
+    exit_expression: "success"
+
+  coding_agent:
+    description: "Retrieve the completed bug from Jira that is ready for implementation and checkout the code from the repository. Analyze the code find the root cause of the bug and provide a detailed explanation of the issue. Ensure that the code is well-documented and follows best practices. Provide a detailed plan to address the issue, which could include code fixes, configuration changes, infrastructure updates, or other resolutions."
+
+    instructions: |
+      0. Pre-Check (Markdown Safety Net & Branch Creation — Mandatory)
+         - Clone Project: First, check if the Jira Issue Key: {/issueKey} contains the exact URI for the git project to clone.
+           If the issue does not provide a git repository URI:
+           - Use the qodo_aware tool (if available) and supply it with the Jira task information from Issue Key: {/issueKey}
+           - Use the tool's response to obtain the URI to the git repository
+           - If the qodo_aware tool is not available or does not return a valid URI, fallback to:
+             git@github.com:davidparry/profile-octo-robot.git
+           Once you have determined the correct repository URI, use the git_clone tool to clone it.
+         
+         - Create Branch (Mandatory): Use the git_branch tool to create a new branch named:
+           {/issueKey}-agent-fix
+           - This branch must always exist.
+           - If the branch already exists, re-create or check it out to ensure it is active.
+           - Ensure you always stay on this branch {/issueKey}-agent-fix
+         
+         - Ensure upstream tracking is setup for this branch {/issueKey}-agent-fix
+           
+         - Immediately after creating the branch (before any fix attempts), create a Markdown file named:
+           FIX_ATTEMPT.md
+      
+         - Add an initial template with:
+           # Fix Attempt for Issue {/issueKey}
+
+           ## Summary
+           Placeholder file created to ensure at least one Markdown record exists in this branch.
+           - Issue Key: {/issueKey}
+           - Status: In Progress
+           - Notes: Initial placeholder. Will be updated with details of attempts, outcomes, or errors.
+
+         - Commit this file to branch {/issueKey}-agent-fix with message:
+           Initial FIX_ATTEMPT.md [AGENT-CREATED]
+         - *** A force Push to the origin remote branch {/issueKey}-agent-fix immediately to ensure the branch always has a Markdown file present! ***
+         - This file must be updated throughout the process.
+         - Never change this branch always make all changes on this {/issueKey}-agent-fix branch and pushes.
+
+      1. Review Summary: Examine the provided Summary of the Issue ({/summary}) and analyze what the agent has summarized about the Jira issue with key {/issueKey}.
+
+      2. Retrieve Issue Details: Use the getJiraIssue tool to fetch the full issue details for key {/issueKey}.
+
+      3. Gather Fix Context: Review all descriptions and comments on the issue to identify the suggested or intended fix.
+
+      4. Analyze & Implement Fix: Analyze the code in this branch. Using insights from steps 1 and 3, attempt to implement a fix.
+         - Update FIX_ATTEMPT.md as you go to describe changes, reasoning, or roadblocks.
+         - You may create, update, or delete code files and project files as needed.
+
+      5. Build & Test: Build the project using its provided build tool, and run its test suite.
+         - determine the type of project to build by using the appropriate build tool 
+         - if the project is a gradle project use the scout-server mcpServer and its tools like build_gradle_project and gradle_tester.
+
+      6. Handle Failures: If the build or tests fail, analyze the failure messages, apply corrective fixes, and re-test.
+         - Document each failure and attempted solution in FIX_ATTEMPT.md.
+
+      7. Iterate Until Success: Repeat the build–fix–test cycle until either:
+         - the project builds successfully and all tests pass, OR
+         - you determine the issue cannot be fully fixed.
+
+      8. Commit Changes: Use the git_commit tool to commit your code and Markdown updates with a clear, meaningful message.
+          - Append [AGENT-CREATED] to every commit message.
+
+      9. Push Changes (Mandatory): Use the git_push tool to push the branch and commits to the remote repository.
+          - **This must always happen, no matter what.**
+          - **You can never push to the default branch always the checked out branch only*** (default branches are typically called trunk, main, master)
+
+      10. Final Deliverable — Always Required:
+          At minimum, every execution must result in:
+          - A branch pushed to origin, AND
+          - A Markdown file in the branch describing the outcome.
+
+          If the issue is fixed successfully:
+          - (a) Rename FIX_ATTEMPT.md to FIX_RESULT.md (or create it separately).
+          - (b) Document in Markdown:
+            - What was fixed,
+            - Which files were modified,
+            - Confirmation that all tests passed.
+          - (c) Output JSON:
+            {
+              "success": true,
+              "files": ["list of created/updated/deleted files"]
+            }
+
+          If the fix could not be completed:
+          - (a) Ensure FIX_ATTEMPT.md is fully updated with:
+            1. How far you got.
+            2. Where you believe the fix belongs.
+            3. What changes you attempted.
+            4. Why it failed (error messages, test failures, reasoning).
+          - (b) Commit and push.
+          - (c) Output JSON:
+            {
+              "success": false, "files": ["list of created/updated/deleted files"]
+            }
+
+      Hard Enforcement Rules:
+      - Step 0 ensures a Markdown file exists from the start → no chance of ending empty.
+      - A branch must always be created and continuously pushed updates to the origin branch {/issueKey}-agent-fix .
+      - Never push to the default branch only push to the created branch.
+      - A Markdown file must always exist in the pushed branch.
+      - Markdown evolves as the workflow proceeds, ensuring both successful and failed paths are documented.
+
+    model: "claude-4.5-sonnet"
+
+    mcpServers: |
+      {
+        "mcpServers": {
+           "internal-server": {
+              "command": "java",
+              "args": ["-jar", "/app/mcp-internal-1.0.3.jar"],
+              "env": {
+                "JIRA_EMAIL":"{ATLASSIAN_JIRA_USERNAME}",
+                "JIRA_API_TOKEN":"{ATLASSIAN_JIRA_API_TOKEN}",
+                "JIRA_SITE_URL":"{ATLASSIAN_JIRA_URL}"
+              }
+          }
+        }
+      }
+
+    tools: [ "internal-server.terminal_execute_command", "internal-server.get_status" ]
+    execution_strategy: "act"
+
+    output_schema: |
+      {
+          "properties": {
+              "success": {
+                 "description": "Boolean indicating if the agent was able to complete all the work needed",
+                 "type": "boolean"
+             },
+              "files": {
+                  "description": "Array of files either created or updated and checked into a branch to be looked at after completion",
+                  "type": "array",
+                  "items": {
+                      "type": "string",
+                      "description": "A single file updated or created or deleted"
+                  }
+              },
+              "reason": {
+                  "description": "Optional field explaining why success is false, only present when success is false",
+                  "type": "string"
+              }
+          },
+          "required": ["files", "success"]
+       }
+
+    exit_expression: "success"

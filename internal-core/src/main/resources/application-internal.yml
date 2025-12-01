@@ -1,0 +1,128 @@
+# Qodo Core Configuration
+qodo:
+  baseUrl: ${COMMAND_BASE_URL:https://api.ng.command.qodo.ai}
+  blockedTools: ${QODO_BLOCKED_TOOLS:}
+  metrics:
+    cache:
+      max-size: ${QODO_METRICS_CACHE_MAX_SIZE:1000}
+      expire-after-access-minutes: ${QODO_METRICS_CACHE_EXPIRE_MINUTES:60}
+      record-stats: ${QODO_METRICS_CACHE_RECORD_STATS:true}
+  agent:
+    configFile: ${QODO_AGENT_CONFIG_FILE:classpath:agent.yml}
+  mcp:
+    request-timeout-seconds: ${QODO_MCP_REQUEST_TIMEOUT_SECONDS:900}
+  websocket:
+    token: ${WEBSOCKET_TOKEN}
+    # Health check configuration
+    # How often to send ping messages to verify connection health
+    # Reduced from 30s to 15s for faster connection issue detection
+    ping-interval-seconds: ${QODO_WS_PING_INTERVAL_SECONDS:15}
+    # Maximum time to wait for pong response before considering connection dead
+    # Reduced from 10s to 5s for faster failure detection
+    pong-timeout-seconds: ${QODO_WS_PONG_TIMEOUT_SECONDS:5}
+
+    # Connection timeout configuration
+    # Maximum time to establish initial WebSocket connection
+    connection-timeout-seconds: ${QODO_WS_CONNECTION_TIMEOUT_SECONDS:60}
+    # Maximum time to wait for server READY signal after connection
+    # Increase if experiencing timeout errors on slow networks
+    ready-signal-timeout-seconds: ${QODO_WS_READY_SIGNAL_TIMEOUT_SECONDS:60}
+
+    # Reconnection behavior
+    # Maximum number of reconnection attempts before giving up
+    max-reconnect-attempts: ${QODO_WS_MAX_RECONNECT_ATTEMPTS:3}
+    # Initial delay before first reconnection attempt
+    initial-reconnect-delay: ${QODO_WS_INITIAL_RECONNECT_DELAY:1s}
+    # Maximum delay between reconnection attempts (with exponential backoff)
+    max-reconnect-delay: ${QODO_WS_MAX_RECONNECT_DELAY:30s}
+
+# Messaging configuration
+messaging:
+  provider: ${MESSAGING_PROVIDER:activemq}
+  queue:
+    audit: ${MESSAGING_DEFAULT_TOPIC:audit}
+    event: ${MESSAGING_EVENT_TOPIC:event}
+    response: ${MESSAGING_RESPONSE_TOPIC:response}
+  activemq:
+    broker-url: ${MESSAGING_ACTIVEMQ_BROKER_URL:tcp://localhost:61616}
+    username: ${MESSAGING_ACTIVEMQ_USERNAME:qodo}
+    password: ${MESSAGING_ACTIVEMQ_PASSWORD:qodo}
+  local:
+    # Maximum capacity for each queue (number of messages)
+    queue-capacity: ${LOCAL_QUEUE_CAPACITY:1000}
+    # Number of consumer threads per queue (1 ensures message ordering)
+    consumer-threads: ${LOCAL_CONSUMER_THREADS:1}
+    # Maximum number of retry attempts for failed messages
+    retry-attempts: ${LOCAL_RETRY_ATTEMPTS:3}
+    # Initial delay in milliseconds before first retry
+    retry-delay-ms: ${LOCAL_RETRY_DELAY_MS:1000}
+    # Maximum delay in milliseconds between retries (with exponential backoff)
+    max-retry-delay-ms: ${LOCAL_MAX_RETRY_DELAY_MS:30000}
+    # Timeout in seconds for polling messages from the queue
+    poll-timeout-seconds: ${LOCAL_POLL_TIMEOUT_SECONDS:5}
+    # Whether to use exponential backoff for retries
+    exponential-backoff: ${LOCAL_EXPONENTIAL_BACKOFF:true}
+
+# Server configuration
+server:
+  port: ${SERVER_PORT:8080}
+  error:
+    include-binding-errors: never
+    include-stacktrace: never
+    include-exception: false
+
+# Spring configuration
+spring:
+  threads:
+    virtual:
+      enabled: true
+
+# Actuator configuration
+management:
+  server:
+    port: ${SERVER_PORT:8080}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+      base-path: /actuator
+    access:
+      default: read_only
+  endpoint:
+    health:
+      show-details: always
+      access: read_only
+    info:
+      access: read_only
+    prometheus:
+      enabled: true
+    metrics:
+      enabled: true
+  health:
+    jms:
+      enabled: ${JMS_HEALTH_ENABLED:true}
+  metrics:
+    tags:
+      application: command-sdk
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
+# Logging configuration
+logging:
+  level:
+    root: INFO
+    io:
+      modelcontextprotocol:
+        client:
+          transport:
+            StdioClientTransport: ERROR
+    ai.qodo.command: INFO
+    ai.qodo.command.internal: ${LOGGING_LEVEL_AI_QODO_COMMAND_INTERNAL:INFO}
+    ai.qodo.command.internal.service.WebSocketService: DEBUG
+    ai.qodo.command.internal.service.BaseHandler: TRACE
+    ai.qodo.command.internal.transformer.TemplateProcessor: TRACE
+
+  pattern:
+    console: "%d{yy-MM-dd HH:mm:ss} - [%logger{36}] - %msg%n"
