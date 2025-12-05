@@ -3,6 +3,7 @@ plugins {
     id("io.spring.dependency-management") version "1.1.7"
     id("jacoco")
     id("org.unbroken-dome.test-sets") version "4.1.0"
+    id("maven-publish")
 }
 
 group = "ai.qodo.command"
@@ -12,6 +13,8 @@ java {
     toolchain {
         languageVersion.set(JavaLanguageVersion.of(21))
     }
+    withSourcesJar()
+    withJavadocJar()
 }
 
 repositories {
@@ -128,4 +131,57 @@ testSets {
 
 tasks.named<Test>("integrationTest") {
     useJUnitPlatform()
+}
+
+// Publishing configuration
+publishing {
+    publications {
+        create<MavenPublication>("mavenJava") {
+            from(components["java"])
+            
+            groupId = "ai.qodo.command"
+            artifactId = "internal-core"
+            version = project.version.toString()
+            
+            pom {
+                name.set("Qodo Command SDK Internal Core")
+                description.set("Core framework for Qodo Command SDK - Spring Boot based AI agent orchestration")
+                url.set("https://github.com/David-Parry/spring-command-sdk")
+                
+                licenses {
+                    license {
+                        name.set("GNU Affero General Public License v3.0")
+                        url.set("https://www.gnu.org/licenses/agpl-3.0.html")
+                    }
+                }
+                
+                developers {
+                    developer {
+                        id.set("qodo")
+                        name.set("Qodo Team")
+                        email.set("support@qodo.ai")
+                    }
+                }
+                
+                scm {
+                    connection.set("scm:git:git://github.com/David-Parry/spring-command-sdk.git")
+                    developerConnection.set("scm:git:ssh://github.com/David-Parry/spring-command-sdk.git")
+                    url.set("https://github.com/David-Parry/spring-command-sdk")
+                }
+            }
+        }
+    }
+    
+    repositories {
+        mavenLocal()
+        
+        maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/David-Parry/spring-command-sdk")
+            credentials {
+                username = System.getenv("GITHUB_ACTOR") ?: project.findProperty("gpr.user") as String? ?: ""
+                password = System.getenv("GITHUB_TOKEN") ?: project.findProperty("gpr.key") as String? ?: ""
+            }
+        }
+    }
 }
